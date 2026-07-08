@@ -138,13 +138,31 @@
 
 ;;; Group 7: completion parsing
 
-(ert-deftest nix-core-test-parse-completions-drops-mode-line ()
-  (should (equal '("build" "run" "eval")
+;; `nix--parse-completions' returns `(MODE . CANDIDATES)': MODE is the
+;; mode-marker symbol Nix emits on the first line (nil for empty output),
+;; CANDIDATES the first tab-separated field of each remaining line.
+
+(ert-deftest nix-core-test-parse-completions-normal-mode ()
+  (should (equal '(normal . ("build" "run" "eval"))
                  (nix--parse-completions
                   "normal\nbuild\trun a build\nrun\t\neval\teval expr\n"))))
 
-(ert-deftest nix-core-test-parse-completions-empty ()
-  (should (equal '() (nix--parse-completions "normal\n"))))
+(ert-deftest nix-core-test-parse-completions-filenames-mode ()
+  (should (equal '(filenames . ("./default.nix"))
+                 (nix--parse-completions "filenames\n./default.nix\t\n"))))
+
+(ert-deftest nix-core-test-parse-completions-attrs-mode ()
+  (should (equal '(attrs . ("packages.x86_64-linux.default"))
+                 (nix--parse-completions
+                  "attrs\npackages.x86_64-linux.default\tthe default\n"))))
+
+(ert-deftest nix-core-test-parse-completions-mode-only-has-no-candidates ()
+  "A mode line with no rows yields the mode and an empty candidate list."
+  (should (equal '(normal) (nix--parse-completions "normal\n"))))
+
+(ert-deftest nix-core-test-parse-completions-empty-output ()
+  "Empty output yields no mode and no candidates."
+  (should (equal '(nil) (nix--parse-completions ""))))
 
 (provide 'nix-test-core)
 ;;; nix-test-core.el ends here

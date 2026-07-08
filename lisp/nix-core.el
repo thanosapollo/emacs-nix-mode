@@ -173,15 +173,18 @@ CONTEXT is passed to `nix--check'."
 (defvar nix--version-cache nil
   "Cached output of `nix --version', or nil if not yet queried.")
 
+(defun nix--fetch-version ()
+  "Query and return the installed Nix version string.
+Runs the process every call; `nix-version' handles caching."
+  (string-trim
+   (nix--check (nix--call nix-executable '("--version")) "nix --version")))
+
 ;;;###autoload
 (defun nix-version ()
   "Return and display the installed Nix version string."
   (interactive)
   (let ((version (or nix--version-cache
-                     (setq nix--version-cache
-                           (string-trim
-                            (nix--check (nix--call nix-executable '("--version"))
-                                        "nix --version"))))))
+                     (setq nix--version-cache (nix--fetch-version)))))
     (when (called-interactively-p 'interactive)
       (message "%s" version))
     version))
@@ -317,21 +320,29 @@ is not invoked, and the error is reported with `message'."
 
 ;; Nix 2.4+ ships native completion via the NIX_GET_COMPLETIONS
 ;; environment variable, so the large static command and option lists the
-;; old nix.el carried are gone.  `nix' prints a mode line ("normal" or
-;; "filenames") followed by tab-separated "completion\tdescription" rows.
+;; old nix.el carried are gone.  `nix' prints a mode line ("normal",
+;; "filenames" or "attrs") followed by tab-separated
+;; "completion\tdescription" rows.
 
 ;;;###autoload
 (defun pcomplete/nix ()
   "Completion for the \"nix\" command via native NIX_GET_COMPLETIONS."
-  (let ((completions (nix--native-completions pcomplete-args)))
+  (let* ((parsed (nix--native-completions pcomplete-args))
+         (mode (car parsed))
+         (candidates (cdr parsed)))
     (dolist (_ (cddr pcomplete-args))
       (pcomplete-here))
-    (pcomplete-here completions nil t)))
+    ;; In "filenames" mode Nix wants a path (e.g. `nix build ./dir'), so
+    ;; add file completion alongside whatever candidates it offered.
+    (if (eq mode 'filenames)
+        (while (pcomplete-here (append candidates (pcomplete-entries))))
+      (pcomplete-here candidates nil t))))
 
 (defun nix--native-completions (args)
   "Return native completions for ARGS, the current `pcomplete-args'.
 ARGS starts with the command word; its length drives the
-NIX_GET_COMPLETIONS index Nix expects."
+NIX_GET_COMPLETIONS index Nix expects.  The return value is the
+cons produced by `nix--parse-completions'."
   (let ((process-environment
          (cons (format "NIX_GET_COMPLETIONS=%d" (1- (length args)))
                process-environment)))
@@ -339,13 +350,18 @@ NIX_GET_COMPLETIONS index Nix expects."
      (plist-get (nix--call nix-executable (cdr args)) :stdout))))
 
 (defun nix--parse-completions (output)
-  "Parse OUTPUT from a NIX_GET_COMPLETIONS run into candidate strings.
-The first line is a mode marker and is dropped; each remaining
-non-empty line is \"candidate\\tdescription\"."
-  (let ((lines (cdr (split-string output "\n"))))
-    (thread-last lines
-                 (seq-remove #'string-empty-p)
-                 (mapcar (lambda (line) (car (split-string line "\t")))))))
+  "Parse OUTPUT from a NIX_GET_COMPLETIONS run into `(MODE . CANDIDATES)'.
+MODE is the completion mode symbol Nix emits on the first line,
+one of `normal', `filenames' or `attrs' (nil for empty OUTPUT).
+CANDIDATES is the list of candidate strings taken from the first
+tab-separated field of each remaining non-empty line."
+  (pcase (split-string output "\n")
+    (`(,mode . ,rows)
+     (cons (and (not (string-empty-p mode)) (intern mode))
+           (thread-last rows
+                        (seq-remove #'string-empty-p)
+                        (mapcar (lambda (row)
+                                  (car (split-string row "\t")))))))))
 
 (provide 'nix-core)
 ;;; nix-core.el ends here
