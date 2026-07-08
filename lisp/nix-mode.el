@@ -43,10 +43,17 @@
 
 (require 'treesit)
 (require 'nix-core)
+(require 'keymap-popup)
 (eval-when-compile (require 'rx))
 
 (declare-function treesit-parent-until "treesit")
 (declare-function treesit-install-language-grammar "treesit")
+(declare-function nix-build "nix-commands")
+(declare-function nix-search "nix-commands")
+(declare-function nix-edit "nix-commands")
+(declare-function nix-log "nix-commands")
+(declare-function nix-flake "nix-flake")
+(declare-function nix-repl "nix-repl")
 
 ;;; Customization
 
@@ -361,8 +368,33 @@ functions have no name."
 
 ;;; Mode definition
 
+;; The sibling commands bound below carry autoload cookies, so binding
+;; them by symbol pulls no module at load time; each is loaded on first
+;; keypress.  C-c C-<letter> is reserved for major modes.
 (defvar-keymap nix-mode-map
-  :doc "Keymap for `nix-mode'.")
+  :doc "Keymap for `nix-mode'."
+  "C-c C-b" #'nix-build
+  "C-c C-f" #'nix-flake
+  "C-c C-z" #'nix-repl
+  "C-c C-e" #'nix-edit
+  "C-c C-s" #'nix-search
+  "C-c C-l" #'nix-log
+  "C-c '" #'nix-format-buffer)
+
+;; keymap-popup is a hard dependency, so annotate directly rather than
+;; through `with-eval-after-load'.  Keys resolve via `where-is-internal'
+;; at display time, so the popup follows any user rebinding.
+(keymap-popup-annotate nix-mode-map
+  :group "Build"
+  nix-build "Build derivation"
+  nix-flake "Flake menu"
+  nix-repl "REPL"
+  :group "Browse"
+  nix-search "Search packages"
+  nix-edit "Edit package source"
+  nix-log "Build log"
+  :group "Buffer"
+  nix-format-buffer "Format buffer")
 
 (defun nix-mode--setup-things ()
   "Install Emacs 30 `treesit-thing-settings' when supported."
