@@ -203,18 +203,23 @@ Runs the process every call; `nix-version' handles caching."
   (let-alist (nix-show-config)
     (and (member "flakes" .experimental-features.value) t)))
 
+(defun nix--unquote (string)
+  "Return STRING without surrounding whitespace and double quotes.
+Nix evaluation output prints strings quoted and newline-terminated;
+this undoes both layers."
+  (string-trim (string-trim string) "\"" "\""))
+
 ;;;###autoload
 (defun nix-system ()
   "Return and display the current Nix system tuple.
 Uses \"nix-instantiate --eval\" so it works without flakes on any
 Nix 2.4 or later."
   (interactive)
-  (let ((system (string-trim
+  (let ((system (nix--unquote
                  (nix--check
                   (nix--call nix-instantiate-executable
                              '("--eval" "-E" "builtins.currentSystem"))
-                  "nix-instantiate --eval")
-                 "\"" "\"")))
+                  "nix-instantiate --eval"))))
     (when (called-interactively-p 'interactive)
       (message "%s" system))
     system))

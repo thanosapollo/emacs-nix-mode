@@ -136,7 +136,15 @@
       (should-not (gethash key nix--instantiate-registry))
       (should-not called))))
 
-;;; Group 7: completion parsing
+;;; Group 7: output unquoting
+
+(ert-deftest nix-core-test-unquote-strips-quotes-and-newline ()
+  (should (equal "x86_64-linux" (nix--unquote "\"x86_64-linux\"\n"))))
+
+(ert-deftest nix-core-test-unquote-plain-string-unchanged ()
+  (should (equal "plain" (nix--unquote "plain\n"))))
+
+;;; Group 8: completion parsing
 
 ;; `nix--parse-completions' returns `(MODE . CANDIDATES)': MODE is the
 ;; mode-marker symbol Nix emits on the first line (nil for empty output),
