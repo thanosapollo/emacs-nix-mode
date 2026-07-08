@@ -255,5 +255,131 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
               (assoc-default "/path/flake.lock" auto-mode-alist
                              #'string-match-p))))
 
+;;; Group 6: formatting
+
+;; These exercise the real formatter from the devshell.  The success
+;; tests assert stable properties (idempotence, point preservation)
+;; rather than a byte-exact expected string, so they survive nixfmt
+;; version bumps.
+
+(defconst nix-mode-test--misformatted "{a=1;b=2;}\n"
+  "A snippet nixfmt will reflow, used by the formatter tests.")
+
+(defun nix-mode-test--nixfmt-available-p ()
+  "Return non-nil when the configured formatter is on the exec path."
+  (and (executable-find (car nix-formatter)) t))
+
+(ert-deftest nix-mode-test-format-buffer-is-idempotent ()
+  "Formatting an already-formatted buffer changes nothing."
+  (skip-unless (nix-mode-test--nixfmt-available-p))
+  (with-temp-buffer
+    (insert nix-mode-test--misformatted)
+    (nix-format-buffer)
+    (let ((formatted (buffer-string)))
+      (nix-format-buffer)
+      (should (string-equal formatted (buffer-string))))))
+
+(ert-deftest nix-mode-test-format-buffer-preserves-point ()
+  "Formatting keeps point on the same binding via marker preservation."
+  (skip-unless (nix-mode-test--nixfmt-available-p))
+  (with-temp-buffer
+    (insert nix-mode-test--misformatted)
+    (goto-char (point-min))
+    (search-forward "b")
+    (let ((marker (point-marker)))
+      (nix-format-buffer)
+      (goto-char marker)
+      (should (looking-back "b" (line-beginning-position))))))
+
+(ert-deftest nix-mode-test-format-buffer-signals-on-failure ()
+  "A failing formatter signals a `user-error'."
+  (let ((nix-formatter '("false")))
+    (skip-unless (executable-find "false"))
+    (with-temp-buffer
+      (insert "{ a = 1; }\n")
+      (should-error (nix-format-buffer) :type 'user-error))))
+
+(ert-deftest nix-mode-test-format-on-save-mode-toggles-hook ()
+  "The on-save mode adds and removes the local `before-save-hook'."
+  (with-temp-buffer
+    (nix-format-on-save-mode 1)
+    (should (memq #'nix-format-buffer
+                  (buffer-local-value 'before-save-hook (current-buffer))))
+    (nix-format-on-save-mode -1)
+    (should-not (memq #'nix-format-buffer
+                      (buffer-local-value 'before-save-hook
+                                          (current-buffer))))))
+
+;;; Group 7: shebang detection
+
+(defconst nix-mode-test--shebang-scripts
+  '(("interp-present" . "#!/usr/bin/env nix-shell\n#! nix-shell -i bash -p hello\necho hi\n")
+    ("extra-p-args" . "#!/usr/bin/env nix-shell\n#! nix-shell -p hello python3 -i python3\nprint()\n")
+    ("no-shebang" . "{ a = 1; }\n")
+    ("shell-without-i" . "#!/usr/bin/env nix-shell\n#! nix-shell -p hello\n"))
+  "Fixtures for the shebang interpreter extractor.")
+
+(defun nix-mode-test--interp-of (name)
+  "Return the extracted interpreter for fixture NAME."
+  (with-temp-buffer
+    (insert (assoc-default name nix-mode-test--shebang-scripts))
+    (nix-mode--shebang-interpreter)))
+
+(ert-deftest nix-mode-test-shebang-extracts-interpreter ()
+  "The extractor finds the -i interpreter, ignoring order of flags."
+  (should (equal "bash" (nix-mode-test--interp-of "interp-present")))
+  (should (equal "python3" (nix-mode-test--interp-of "extra-p-args"))))
+
+(ert-deftest nix-mode-test-shebang-absent-returns-nil ()
+  "No nix-shell -i line yields nil."
+  (should-not (nix-mode-test--interp-of "no-shebang"))
+  (should-not (nix-mode-test--interp-of "shell-without-i")))
+
+(ert-deftest nix-mode-test-shebang-mode-dispatches-to-interpreter ()
+  "`nix-shebang-mode' enters the mode `interpreter-mode-alist' gives bash."
+  (with-temp-buffer
+    (insert (assoc-default "interp-present" nix-mode-test--shebang-scripts))
+    (nix-shebang-mode)
+    (should (eq major-mode
+                (nix-mode--interpreter-mode "bash")))))
+
+(ert-deftest nix-mode-test-shebang-mode-declines-unknown ()
+  "`nix-shebang-mode' does nothing when there is no nix-shell shebang."
+  (with-temp-buffer
+    (insert (assoc-default "no-shebang" nix-mode-test--shebang-scripts))
+    (let ((before major-mode))
+      (nix-shebang-mode)
+      (should (eq major-mode before)))))
+
+(ert-deftest nix-mode-test-shebang-magic-regexp-matches ()
+  "The `magic-mode-alist' regexp claims real nix-shell shebangs."
+  (dolist (content '("#!/usr/bin/env nix-shell\n#! nix-shell -i bash -p hello\n"
+                     "#!/usr/bin/env nix-shell -i bash -p hello\n"))
+    (should (string-match-p nix-mode--shebang-magic-regexp content))))
+
+(ert-deftest nix-mode-test-shebang-magic-regexp-declines ()
+  "The `magic-mode-alist' regexp ignores non-nix-shell buffers.
+It must not match plain Nix files, ordinary shebang scripts, or a
+buffer whose nix-shell line only appears past the first two lines."
+  (dolist (content '("{ a = 1; }\n"
+                     "#!/usr/bin/env bash\necho hi\n"
+                     "#!/usr/bin/env bash\n# comment\n#! nix-shell -i bash\n"))
+    (should-not (string-match-p nix-mode--shebang-magic-regexp content))))
+
+(ert-deftest nix-mode-test-shebang-magic-alist-literal-in-sync ()
+  "The inlined `magic-mode-alist' regexp equals the defconst.
+The autoloaded entry hardcodes the regexp as pure data; this
+guards against it drifting from `nix-mode--shebang-magic-regexp'."
+  (should (equal nix-mode--shebang-magic-regexp
+                 (car (rassq 'nix-shebang-mode magic-mode-alist)))))
+
+(ert-deftest nix-mode-test-interpreter-mode-no-substring-match ()
+  "An interpreter with no exact alist entry does not borrow a substring's mode.
+\"fish\" contains \"sh\" but must not resolve to a mode via the
+\"sh\" alist key."
+  (let ((interpreter-mode-alist '(("bash" . sh-mode) ("sh" . sh-mode))))
+    (should (eq 'sh-mode (nix-mode--interpreter-mode "bash")))
+    (should-not (nix-mode--interpreter-mode "fish"))))
+
 (provide 'nix-test-mode)
 ;;; nix-test-mode.el ends here

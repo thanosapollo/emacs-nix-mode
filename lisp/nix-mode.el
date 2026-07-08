@@ -419,5 +419,145 @@ functions have no name."
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("/flake\\.lock\\'" . js-json-mode))
 
+;;; Formatting
+
+;; Formatting is deliberately a thin wrapper over an external tool:
+;; `nix-formatter' is a program-plus-arguments list so a user can switch
+;; between nixfmt, alejandra or nixpkgs-fmt purely by customization.  The
+;; buffer edit goes through `replace-buffer-contents', which preserves
+;; point and markers by diffing rather than wholesale replacing the text.
+
+(defcustom nix-formatter '("nixfmt" "-")
+  "Program and arguments used to format Nix buffers.
+The first element is the executable and the rest are extra
+arguments; the buffer contents are fed on standard input and the
+formatted result read from standard output.  The default passes
+nixfmt the \"-\" argument that selects anonymous stdin.  Point at,
+say, alejandra or nixpkgs-fmt by customizing this list."
+  :type '(repeat string)
+  :group 'nix)
+
+(defun nix-format--program ()
+  "Return the absolute path to the configured formatter executable.
+Signal a `user-error' when `nix-formatter' is empty or its
+program cannot be found via `executable-find'."
+  (let ((program (car nix-formatter)))
+    (or (and program (executable-find program))
+        (user-error "Cannot find Nix formatter %S"
+                    (or program nix-formatter)))))
+
+;;;###autoload
+(defun nix-format-buffer ()
+  "Format the current buffer with `nix-formatter'.
+Run the formatter with the buffer contents on standard input and,
+on a successful exit, splice the output back in with
+`replace-buffer-contents' so point and markers survive.  On
+failure signal a `user-error' and show the formatter output in
+the *nix-format* buffer."
+  (interactive)
+  (let ((program (nix-format--program))
+        (args (cdr nix-formatter))
+        (source (current-buffer))
+        (out (get-buffer-create "*nix-format*")))
+    (with-current-buffer out (erase-buffer))
+    (if (zerop (apply #'call-process-region nil nil program
+                      nil out nil args))
+        (progn
+          (replace-buffer-contents out)
+          (kill-buffer out))
+      (with-current-buffer source (pop-to-buffer out))
+      (user-error "Nix formatter failed; see the *nix-format* buffer"))))
+
+;;;###autoload
+(define-minor-mode nix-format-on-save-mode
+  "Format the buffer with `nix-format-buffer' before every save.
+Enable it per buffer, typically from `nix-mode-hook':
+
+  (add-hook \\='nix-mode-hook \\='nix-format-on-save-mode)"
+  :lighter nil
+  (if nix-format-on-save-mode
+      (add-hook 'before-save-hook #'nix-format-buffer nil t)
+    (remove-hook 'before-save-hook #'nix-format-buffer t)))
+
+;;; Shebang detection
+
+;; Nix shell scripts open with a two-line shebang:
+;;
+;;   #!/usr/bin/env nix-shell
+;;   #! nix-shell -i bash -p hello
+;;
+;; The real interpreter is the argument to `-i' on the `nix-shell' line,
+;; which may carry other flags (`-p', packages) in any order.  We match
+;; on the buffer start and hand off to whatever mode
+;; `interpreter-mode-alist' assigns that interpreter.
+
+(defconst nix-mode--shebang-regexp
+  (rx bol "#!" (* space) "nix-shell" (* nonl) "-i" (+ space)
+      (group (+ (not (any " \t\n")))))
+  "Regexp capturing the interpreter of a nix-shell shebang line.")
+
+(defconst nix-mode--shebang-magic-regexp
+  (rx buffer-start "#!"
+      ;; Line 1: either the shebang line proper (single-line form) or
+      ;; the `env nix-shell' introducer of the two-line form, then an
+      ;; optional continuation line, one of which carries `nix-shell'
+      ;; followed later by its `-i' flag on the same line.
+      (or (seq (* (not (any ?\n))) "nix-shell" (* (not (any ?\n))) "-i")
+          (seq (* (not (any ?\n))) "\n#!"
+               (* (not (any ?\n))) "nix-shell" (* (not (any ?\n))) "-i")))
+  "Regexp for `magic-mode-alist' matching a nix-shell shebang.
+It is anchored at the buffer start and bounded to the first two
+lines so magic matching stays cheap.  It matches both the
+single-line form and the two-line `env nix-shell' form, requiring
+`nix-shell' and its `-i' flag on the same physical line.  The
+`magic-mode-alist' entry below inlines this same regexp as a
+literal so the autoloads file stays pure data; keep them in sync.")
+
+(defun nix-mode--shebang-interpreter ()
+  "Return the interpreter of the nix-shell shebang, or nil.
+Scan the first two lines of the current buffer for a
+`nix-shell -i INTERP' directive and return INTERP."
+  (save-excursion
+    (goto-char (point-min))
+    (and (re-search-forward nix-mode--shebang-regexp
+                            (line-beginning-position 3) t)
+         (match-string 1))))
+
+(defun nix-mode--interpreter-mode (interpreter)
+  "Return the major-mode function bound to INTERPRETER, or nil.
+Look INTERPRETER up in `interpreter-mode-alist', anchoring each
+alist key so it must match INTERPRETER exactly.  Mirrors the
+interpreter branch of `set-auto-mode-0' in files.el, avoiding
+substring hits like key \"sh\" claiming \"fish\"."
+  (assoc-default interpreter
+                 (mapcar (lambda (e) (cons (format "\\`%s\\'" (car e)) (cdr e)))
+                         interpreter-mode-alist)
+                 #'string-match-p))
+
+;;;###autoload
+(defun nix-shebang-mode ()
+  "Enter the major mode implied by a nix-shell shebang.
+Meant for `magic-mode-alist': when the buffer opens with a
+nix-shell shebang naming an interpreter that
+`interpreter-mode-alist' knows, switch to that mode.  Do nothing
+for an unknown or absent interpreter so magic matching declines
+gracefully."
+  (when-let* ((interpreter (nix-mode--shebang-interpreter))
+              (mode (nix-mode--interpreter-mode interpreter)))
+    (funcall mode)))
+
+;; The `magic-mode-alist' key is a plain regexp, not a function, so the
+;; entry is pure data in the autoloads file: `find-file' can consult it
+;; before nix-mode has loaded without executing any of our code.  The
+;; regexp is the literal expansion of `nix-mode--shebang-magic-regexp'
+;; (inlined so the autoloads file needs no private symbol); keep the two
+;; in sync.  It only claims buffers that open with a genuine nix-shell
+;; shebang; `nix-shebang-mode' (autoloaded) then re-extracts the
+;; interpreter and declines gracefully when it is unknown or absent.
+;;;###autoload
+(add-to-list 'magic-mode-alist
+             '("\\`#!\\(?:.*nix-shell.*-i\\|.*\n#!.*nix-shell.*-i\\)"
+               . nix-shebang-mode))
+
 (provide 'nix-mode)
 ;;; nix-mode.el ends here
