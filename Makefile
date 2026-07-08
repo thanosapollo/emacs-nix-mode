@@ -72,7 +72,9 @@ lint-package-lint:
 do-lint-package-lint:
 	@if [ -n "$(LISP_FILES)" ]; then \
 	  $(EMACS_CMD) $(EMACS_OPTS) \
-	  --eval='(package-initialize)' --eval="(require 'package-lint)" \
+	  --eval='(package-initialize)' \
+	  --eval="(unless package-archive-contents (ignore-errors (package-refresh-contents)))" \
+	  --eval="(require 'package-lint)" \
 	  --eval="(setq package-lint-main-file \"lisp/nix-mode.el\")" \
 	  -f 'package-lint-batch-and-exit' $(LISP_FILES); \
 	fi
