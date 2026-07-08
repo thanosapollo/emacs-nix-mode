@@ -42,12 +42,16 @@
               );
           };
 
+          # Pinned to a git revision until the next ELPA release: the
+          # 0.3.1 tarball's switch macro generates over-wide docstrings
+          # that trip byte-compile warnings in client code.
           keymapPopup = emacsPackages.trivialBuild {
             pname = "keymap-popup";
             version = keymapPopupVersion;
-            src = pkgs.fetchurl {
-              url = "https://elpa.gnu.org/packages/keymap-popup-${keymapPopupVersion}.tar";
-              hash = "sha256-C+ECWpChsO6MUG+oAPJDhZruWphkxy7VLe9YFAzShFQ=";
+            src = pkgs.fetchgit {
+              url = "https://codeberg.org/thanosapollo/emacs-keymap-popup";
+              rev = "fe0e538d35e8bb63e165e78506eff3253fd234d8";
+              hash = "sha256-QU/QxlKEWBRClDb4cM4vhaRizsJ3ooNrn0f6zzJ4RC4=";
             };
             packageRequires = [ ];
           };
