@@ -1,0 +1,174 @@
+{
+  description = "Tree-sitter Emacs major mode and tooling for Nix";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  outputs =
+    { self, nixpkgs }:
+    let
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      keymapPopupVersion = "0.3.1";
+
+      # Build everything for one concrete Emacs.  Called once per
+      # variant (full build, and emacs-nox) so the test matrix can
+      # exercise both.
+      mkVariant =
+        pkgs: emacs:
+        let
+          lib = pkgs.lib;
+          emacsPackages = pkgs.emacsPackagesFor emacs;
+
+          source = lib.cleanSourceWith {
+            src = ./.;
+            filter =
+              path: type:
+              let
+                name = baseNameOf path;
+              in
+              !(
+                name == ".test-results"
+                || lib.hasSuffix ".elc" name
+                || lib.hasSuffix ".so" name
+                || lib.hasSuffix ".dylib" name
+                || lib.hasSuffix "~" name
+              );
+          };
+
+          keymapPopup = emacsPackages.trivialBuild {
+            pname = "keymap-popup";
+            version = keymapPopupVersion;
+            src = pkgs.fetchurl {
+              url = "https://elpa.gnu.org/packages/keymap-popup-${keymapPopupVersion}.tar";
+              hash = "sha256-C+ECWpChsO6MUG+oAPJDhZruWphkxy7VLe9YFAzShFQ=";
+            };
+            packageRequires = [ ];
+          };
+
+          # Prebuilt tree-sitter-nix grammar.  The bundle contains
+          # lib/libtree-sitter-nix.so, which is the directory Emacs
+          # expects on `treesit-extra-load-path'.
+          nixGrammars = emacsPackages.treesit-grammars.with-grammars (g: [ g.tree-sitter-nix ]);
+
+          emacsWithPackages = emacsPackages.emacsWithPackages (epkgs: [
+            keymapPopup
+            epkgs.package-lint
+            epkgs.relint
+          ]);
+
+          # Run a Makefile test target in a sandbox that mirrors a
+          # buildd: clean HOME/XDG, grammar provided via env.
+          mkTests =
+            { pname, target }:
+            pkgs.stdenv.mkDerivation {
+              inherit pname;
+              version = "git";
+              src = source;
+              nativeBuildInputs = [
+                emacsWithPackages
+                pkgs.gnumake
+              ];
+              dontConfigure = true;
+
+              buildPhase = ''
+                runHook preBuild
+                export HOME="$TMPDIR/home"
+                export XDG_CACHE_HOME="$TMPDIR/cache"
+                export XDG_CONFIG_HOME="$TMPDIR/config"
+                export XDG_DATA_HOME="$TMPDIR/share"
+                export XDG_STATE_HOME="$TMPDIR/state"
+                mkdir -p "$HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" \
+                  "$XDG_DATA_HOME" "$XDG_STATE_HOME"
+                EMACS_CMD=emacs \
+                  NIX_MODE_TS_DIR="${nixGrammars}/lib" \
+                  NIX_MODE_ENV_WRAPPED=1 \
+                  make ${target}
+                runHook postBuild
+              '';
+
+              installPhase = ''
+                runHook preInstall
+                mkdir -p $out
+                touch $out/tests-passed
+                runHook postInstall
+              '';
+            };
+        in
+        {
+          inherit
+            emacs
+            emacsWithPackages
+            keymapPopup
+            nixGrammars
+            ;
+          # Per-file: one Emacs per test file (fast, good isolation).
+          tests = mkTests {
+            pname = "nix-mode-tests";
+            target = "test";
+          };
+          # Combined: every file in one Emacs, suite run twice -- mirrors
+          # dh_elpa_test and catches cross-test state pollution.
+          testsOneshot = mkTests {
+            pname = "nix-mode-tests-oneshot";
+            target = "test-oneshot";
+          };
+        };
+
+      mkNixMode =
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          inherit pkgs;
+          full = mkVariant pkgs (pkgs.emacs30 or pkgs.emacs29 or pkgs.emacs);
+          nox = mkVariant pkgs pkgs.emacs-nox;
+        };
+    in
+    {
+      checks = forAllSystems (
+        system:
+        let
+          nixMode = mkNixMode system;
+        in
+        {
+          # Test matrix: {full, nox} x {per-file, combined-twice}.
+          test = nixMode.full.tests;
+          test-nox = nixMode.nox.tests;
+          test-oneshot = nixMode.full.testsOneshot;
+          test-oneshot-nox = nixMode.nox.testsOneshot;
+        }
+      );
+
+      devShells = forAllSystems (
+        system:
+        let
+          nixMode = mkNixMode system;
+        in
+        {
+          default = nixMode.pkgs.mkShell {
+            packages = with nixMode.pkgs; [
+              cacert
+              git
+              gnumake
+              nix
+              nixfmt
+              nixMode.full.emacsWithPackages
+            ];
+
+            shellHook = ''
+              export EMACS_CMD=emacs
+              export NIX_MODE_TS_DIR="${nixMode.full.nixGrammars}/lib"
+            '';
+          };
+        }
+      );
+    };
+}

@@ -1,0 +1,6 @@
+*.elc
+lisp/nix-mode-autoloads.el
+result
+.direnv
+.notes/
+.test-results/
