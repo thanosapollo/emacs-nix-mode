@@ -256,9 +256,15 @@ rather than the raw path."
       (message "%s" value))
     value))
 
+(defun nix--expand-file (file)
+  "Expand FILE unless it is an angle-bracket path like \"<nixpkgs>\".
+Angle-bracket paths are Nix search-path lookups and must reach the
+command line verbatim."
+  (if (string-prefix-p "<" file) file (expand-file-name file)))
+
 (defun nix--instantiate-args (file attribute)
   "Build the nix-instantiate argument list for FILE and ATTRIBUTE."
-  (append (list (expand-file-name file))
+  (append (list (nix--expand-file file))
           (and attribute (list "-A" attribute))))
 
 (defun nix--derivation-show (drv)
@@ -274,7 +280,7 @@ single process; each caller's callback is stored under the key.")
 
 (defun nix--instantiate-key (file attribute)
   "Return the registry key for FILE and ATTRIBUTE."
-  (let ((path (expand-file-name file)))
+  (let ((path (nix--expand-file file)))
     (if attribute (concat path "!" attribute) path)))
 
 (defun nix--instantiate-register (key callback)
