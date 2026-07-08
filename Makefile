@@ -2,7 +2,8 @@
         lint-package-lint lint-relint lint-test-compile \
         clean clean-elc check test test-oneshot load \
         do-build do-dev do-lint do-test do-test-oneshot do-test-summary \
-        do-lint-check-declare do-lint-checkdoc
+        do-lint-check-declare do-lint-checkdoc \
+        do-lint-package-lint do-lint-relint do-lint-test-compile
 
 NIX := $(shell command -v nix 2>/dev/null)
 
@@ -19,7 +20,7 @@ EMACS_OPTS ?= -Q --batch
 JOBS         ?= $(shell nproc 2>/dev/null || echo 4)
 TEST_RESULTS := .test-results
 
-LISP_FILES := $(wildcard lisp/*.el)
+LISP_FILES := $(filter-out lisp/nix-mode-autoloads.el,$(wildcard lisp/*.el))
 TESTS      ?= $(wildcard tests/nix-test-*.el)
 
 TEST_STAMPS := $(patsubst tests/%.el,$(TEST_RESULTS)/%.stamp,$(TESTS))
@@ -62,11 +63,13 @@ lint-checkdoc:
 
 do-lint-checkdoc:
 	@for file in $(LISP_FILES) ; do \
-	  case "$$file" in lisp/nix-mode-autoloads.el) continue;; esac; \
 	  $(EMACS_CMD) $(EMACS_OPTS) --eval="(checkdoc-file \"$$file\")" ; \
 	done
 
 lint-package-lint:
+	@$(ENV_MAKE) do-lint-package-lint
+
+do-lint-package-lint:
 	@if [ -n "$(LISP_FILES)" ]; then \
 	  $(EMACS_CMD) $(EMACS_OPTS) \
 	  --eval='(package-initialize)' --eval="(require 'package-lint)" \
@@ -75,6 +78,9 @@ lint-package-lint:
 	fi
 
 lint-relint:
+	@$(ENV_MAKE) do-lint-relint
+
+do-lint-relint:
 	@if [ -n "$(LISP_FILES)" ]; then \
 	  $(EMACS_CMD) $(EMACS_OPTS) \
 	  --eval='(package-initialize)' --eval="(require 'relint)" \
@@ -82,6 +88,9 @@ lint-relint:
 	fi
 
 lint-test-compile:
+	@$(ENV_MAKE) do-lint-test-compile
+
+do-lint-test-compile:
 	@if [ -n "$(TESTS)" ]; then \
 	  $(EMACS_CMD) $(EMACS_OPTS) -L lisp -L tests \
 	  -f batch-byte-compile $(TESTS); \
@@ -90,7 +99,7 @@ lint-test-compile:
 lint:
 	@$(ENV_MAKE) do-lint
 
-do-lint: do-lint-check-declare do-lint-checkdoc lint-package-lint lint-relint lint-test-compile
+do-lint: do-lint-check-declare do-lint-checkdoc do-lint-package-lint do-lint-relint do-lint-test-compile
 
 test:
 	@$(ENV_MAKE) -j$(JOBS) -Otarget do-test
