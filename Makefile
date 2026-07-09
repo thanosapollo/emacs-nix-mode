@@ -170,6 +170,15 @@ do-test-summary: $(TEST_STAMPS)
 	[ $$failed -eq 0 ]
 
 load: clean-elc
+	@emacsclient --eval "(progn \
+	  (add-to-list 'load-path \"$(CURDIR)/lisp\") \
+	  (dolist (sym '(nix-mode-map nix-repl-mode-map \
+	                 nix-store-path-mode-map nix-search-mode-map \
+	                 nix-flake-menu-map nix-flake-registry-map \
+	                 nix-menu-map)) \
+	    (when (boundp sym) (makunbound sym))))" > /dev/null
+	@emacsclient --eval "(load-file \"$(CURDIR)/lisp/nix-core.el\")" > /dev/null || \
+	    printf "\033[31mFAIL\033[0m lisp/nix-core.el\n"
 	@for f in $(LISP_FILES); do \
 	  emacsclient --eval "(load-file \"$(CURDIR)/$$f\")" > /dev/null || \
 	    printf "\033[31mFAIL\033[0m $$f\n"; \
