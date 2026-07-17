@@ -35,7 +35,7 @@ The package is not on ELPA or MELPA yet.  Clone it and put `lisp/` on your
 `load-path`, or install from source with `package-vc` on Emacs 30+:
 
 ```elisp
-(package-vc-install "https://codeberg.org/thanosapollo/nix-mode")
+(package-vc-install "https://codeberg.org/thanosapollo/emacs-nix-mode")
 ```
 
 Then install the tree-sitter grammar once:
@@ -75,5 +75,5 @@ make test       # tests only
 make lint       # check-declare, checkdoc, package-lint, relint
 ```
 
-`nix flake check` runs the full test matrix (interactive and batch,
-one-shot and repeated) in a sandbox.
+`nix flake check` runs the build, lint, standard ERT, and one-shot
+reload checks in a sandbox.

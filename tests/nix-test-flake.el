@@ -129,12 +129,13 @@
 
 (ert-deftest nix-flake-test-update-command-no-inputs ()
   (nix-flake-test--with-ref "github:o/r"
-			    (should (equal '("nix" "flake" "update" "github:o/r")
+			    (should (equal '("nix" "flake" "update" "--flake" "github:o/r")
 					   (nix-flake--update-command)))))
 
 (ert-deftest nix-flake-test-update-command-with-inputs ()
   (nix-flake-test--with-ref "github:o/r"
-			    (should (equal '("nix" "flake" "update" "github:o/r" "nixpkgs" "flake-utils")
+			    (should (equal '("nix" "flake" "update" "--flake" "github:o/r"
+					    "nixpkgs" "flake-utils")
 					   (nix-flake--update-command '("nixpkgs" "flake-utils"))))))
 
 (ert-deftest nix-flake-test-installable-build-attribute ()

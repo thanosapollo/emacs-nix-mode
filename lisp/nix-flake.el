@@ -125,7 +125,10 @@ bare reference selects the default output.  Option flags follow."
   "Return the argv list for \"nix flake update\".
 INPUTS is a list of input names to update; when nil the whole lock
 file is updated.  Nix 2.19+ takes the input names positionally."
-  (apply #'nix-flake--command "update" inputs))
+  (append (list nix-executable "flake" "update" "--flake"
+                (nix-flake--current-ref))
+          inputs
+          (nix-flake--options)))
 
 (defun nix-flake--init-command (template)
   "Return the argv list for \"nix flake init\" with TEMPLATE.
