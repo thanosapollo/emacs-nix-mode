@@ -544,16 +544,6 @@ Enable it per buffer, typically from `nix-mode-hook':
              interpreter)))
   "Regexp capturing the interpreter of a nix-shell shebang line.")
 
-(defconst nix-mode--shebang-magic-regexp
-  (concat "\\`" nix-mode--shebang-regexp)
-  "Regexp for `magic-mode-alist' matching a nix-shell shebang.
-It is anchored at the buffer start and bounded to the first two
-lines so magic matching stays cheap.  It matches both the
-single-line form and the two-line `env nix-shell' form, requiring
-`nix-shell' and its `-i' flag on the same physical line.  The
-`magic-mode-alist' entry below inlines this same regexp as a
-literal so the autoloads file stays pure data; keep them in sync.")
-
 (defun nix-mode--shebang-interpreter ()
   "Return the interpreter of the nix-shell shebang, or nil.
 Scan the first two lines of the current buffer for a
@@ -577,6 +567,12 @@ exactly in `interpreter-mode-alist'."
      #'string-match-p)))
 
 ;;;###autoload
+(defun nix-shebang-magic-p ()
+  "Return non-nil when a supported nix-shell interpreter is present."
+  (when-let ((interpreter (nix-mode--shebang-interpreter)))
+    (nix-mode--interpreter-mode interpreter)))
+
+;;;###autoload
 (defun nix-shebang-mode ()
   "Enter the major mode implied by a nix-shell shebang.
 Meant for `magic-mode-alist': when the buffer opens with a
@@ -593,18 +589,11 @@ gracefully."
     (when (derived-mode-p 'sh-mode)
       (sh-set-shell name t nil))))
 
-;; The `magic-mode-alist' key is a plain regexp, not a function, so the
-;; entry is pure data in the autoloads file: `find-file' can consult it
-;; before nix-mode has loaded without executing any of our code.  The
-;; regexp is the literal expansion of `nix-mode--shebang-magic-regexp'
-;; (inlined so the autoloads file needs no private symbol); keep the two
-;; in sync.  It only claims buffers that open with a genuine nix-shell
-;; shebang; `nix-shebang-mode' (autoloaded) then re-extracts the
-;; interpreter and declines gracefully when it is unknown or absent.
+;; The autoloaded predicate claims only supported interpreters.  Returning
+;; nil lets normal filename detection continue for an unknown interpreter.
 ;;;###autoload
 (add-to-list 'magic-mode-alist
-             '("\\`\\(?:^#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\)\\|^#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\).*\n#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\)\\)[\t ]+\\(?:-i\\|.+[\t ]+-i\\)[\t ]+\\([^\t\n ]+\\)"
-               . nix-shebang-mode))
+             '(nix-shebang-magic-p . nix-shebang-mode))
 
 (provide 'nix-mode)
 ;;; nix-mode.el ends here

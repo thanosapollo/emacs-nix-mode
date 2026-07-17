@@ -325,6 +325,12 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
     (insert (assoc-default name nix-mode-test--shebang-scripts))
     (nix-mode--shebang-interpreter)))
 
+(defun nix-mode-test--magic-p (content)
+  "Return non-nil when CONTENT triggers nix-shell magic dispatch."
+  (with-temp-buffer
+    (insert content)
+    (nix-shebang-magic-p)))
+
 (ert-deftest nix-mode-test-shebang-extracts-interpreter ()
   "The extractor finds the -i interpreter, ignoring order of flags."
   (should (equal "bash" (nix-mode-test--interp-of "interp-present")))
@@ -342,6 +348,21 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
     (nix-shebang-mode)
     (should (eq major-mode
                 (nix-mode--interpreter-mode "bash")))))
+
+(ert-deftest nix-mode-test-shebang-mode-ignores-unknown-interpreter ()
+  "`nix-shebang-mode' declines unknown interpreters."
+  (with-temp-buffer
+    (insert "#!/usr/bin/env nix-shell -i definitely-unknown\n")
+    (nix-shebang-mode)
+    (should (eq major-mode 'fundamental-mode))))
+
+(ert-deftest nix-mode-test-shebang-magic-declines-unknown-interpreter ()
+  "Magic dispatch leaves an unknown interpreter to filename detection."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/nix-mode-probe.sh")
+    (insert "#!/usr/bin/env nix-shell -i definitely-unknown\n")
+    (set-auto-mode)
+    (should (eq major-mode 'sh-mode))))
 
 (ert-deftest nix-mode-test-shebang-mode-dispatches-single-line-forms ()
   "Single-line direct and env nix-shell forms dispatch correctly."
@@ -367,21 +388,21 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
       (nix-shebang-mode)
       (should (eq major-mode before)))))
 
-(ert-deftest nix-mode-test-shebang-magic-regexp-matches ()
-  "The `magic-mode-alist' regexp claims real nix-shell shebangs."
+(ert-deftest nix-mode-test-shebang-magic-matches ()
+  "The magic matcher claims supported nix-shell shebangs."
   (dolist (content '("#!/usr/bin/env nix-shell\n#! nix-shell -i bash -p hello\n"
                      "#!/usr/bin/env nix-shell -i bash -p hello\n"))
-    (should (string-match-p nix-mode--shebang-magic-regexp content))))
+    (should (nix-mode-test--magic-p content))))
 
-(ert-deftest nix-mode-test-shebang-magic-regexp-declines ()
-  "The `magic-mode-alist' regexp ignores non-nix-shell buffers.
+(ert-deftest nix-mode-test-shebang-magic-declines ()
+  "The magic matcher ignores non-nix-shell buffers.
 It must not match plain Nix files, ordinary shebang scripts, or a
 buffer whose nix-shell line only appears past the first two lines."
   (dolist (content '("{ a = 1; }\n"
                      "#!/usr/bin/env bash\necho hi\n"
                      "#!/usr/bin/env nix-shell\n#! nix-shell -p foo-i bash\n"
                      "#!/usr/bin/env bash\n# comment\n#! nix-shell -i bash\n"))
-    (should-not (string-match-p nix-mode--shebang-magic-regexp content))))
+    (should-not (nix-mode-test--magic-p content))))
 
 (ert-deftest nix-mode-test-shebang-rejects-executable-lookalikes ()
   "Executable names containing nix-shell do not trigger dispatch."
@@ -389,7 +410,7 @@ buffer whose nix-shell line only appears past the first two lines."
                      "#!/usr/bin/env nix-shellish -i bash\n"
                      "#!/usr/bin/env nix-shell\n#! notnix-shell -i bash\n"
                      "#!/usr/bin/env nix-shell\n#! nix-shellish -i bash\n"))
-    (should-not (string-match-p nix-mode--shebang-magic-regexp content))
+    (should-not (nix-mode-test--magic-p content))
     (with-temp-buffer
       (setq buffer-file-name "/tmp/nix-mode-shebang-probe")
       (insert content)
@@ -414,12 +435,10 @@ buffer whose nix-shell line only appears past the first two lines."
     (set-auto-mode)
     (should (eq major-mode 'fundamental-mode))))
 
-(ert-deftest nix-mode-test-shebang-magic-alist-literal-in-sync ()
-  "The inlined `magic-mode-alist' regexp equals the defconst.
-The autoloaded entry hardcodes the regexp as pure data; this
-guards against it drifting from `nix-mode--shebang-magic-regexp'."
-  (should (equal nix-mode--shebang-magic-regexp
-                 (car (rassq 'nix-shebang-mode magic-mode-alist)))))
+(ert-deftest nix-mode-test-shebang-magic-alist-registers-predicate ()
+  "The magic alist uses the autoloaded validating predicate."
+  (should (eq (alist-get 'nix-shebang-magic-p magic-mode-alist)
+              'nix-shebang-mode)))
 
 (ert-deftest nix-mode-test-interpreter-mode-no-substring-match ()
   "An interpreter with no exact alist entry does not borrow a substring's mode.
