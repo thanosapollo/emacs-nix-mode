@@ -343,13 +343,17 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
     (should (eq major-mode
                 (nix-mode--interpreter-mode "bash")))))
 
-(ert-deftest nix-mode-test-shebang-mode-dispatches-single-line-env ()
-  "A single-line env nix-shell shebang dispatches to its interpreter mode."
-  (with-temp-buffer
-    (insert "#!/usr/bin/env nix-shell -i bash -p hello\n")
-    (nix-shebang-mode)
-    (should (eq major-mode
-                (nix-mode--interpreter-mode "bash")))))
+(ert-deftest nix-mode-test-shebang-mode-dispatches-single-line-forms ()
+  "Single-line direct and env nix-shell forms dispatch correctly."
+  (dolist (content '("#!/usr/bin/nix-shell -i bash -p hello\n"
+                     "#!/bin/env nix-shell -i bash -p hello\n"
+                     "#!/usr/bin/env nix-shell -i bash -p hello\n"
+                     "#!/usr/bin/env -S nix-shell -i bash -p hello\n"))
+    (with-temp-buffer
+      (insert content)
+      (nix-shebang-mode)
+      (should (eq major-mode
+                  (nix-mode--interpreter-mode "bash"))))))
 
 (ert-deftest nix-mode-test-shebang-mode-declines-unknown ()
   "`nix-shebang-mode' does nothing when there is no nix-shell shebang."
@@ -374,6 +378,20 @@ buffer whose nix-shell line only appears past the first two lines."
                      "#!/usr/bin/env nix-shell\n#! nix-shell -p foo-i bash\n"
                      "#!/usr/bin/env bash\n# comment\n#! nix-shell -i bash\n"))
     (should-not (string-match-p nix-mode--shebang-magic-regexp content))))
+
+(ert-deftest nix-mode-test-shebang-rejects-executable-lookalikes ()
+  "Executable names containing nix-shell do not trigger dispatch."
+  (dolist (content '("#!/usr/bin/env notnix-shell -i bash\n"
+                     "#!/usr/bin/env nix-shellish -i bash\n"
+                     "#!/usr/bin/env nix-shell\n#! notnix-shell -i bash\n"
+                     "#!/usr/bin/env nix-shell\n#! nix-shellish -i bash\n"))
+    (should-not (string-match-p nix-mode--shebang-magic-regexp content))
+    (with-temp-buffer
+      (setq buffer-file-name "/tmp/nix-mode-shebang-probe")
+      (insert content)
+      (should-not (nix-mode--shebang-interpreter))
+      (set-auto-mode)
+      (should (eq major-mode 'fundamental-mode)))))
 
 (ert-deftest nix-mode-test-shebang-requires-distinct-interpreter-option ()
   "A package token ending in -i is not an interpreter option."

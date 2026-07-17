@@ -524,22 +524,27 @@ Enable it per buffer, typically from `nix-mode-hook':
 ;; `interpreter-mode-alist' assigns that interpreter.
 
 (defconst nix-mode--shebang-regexp
-  (rx bol "#!" (* nonl) "nix-shell" (* nonl)
-      (+ (any " \t")) "-i" (+ (any " \t"))
-      (group (+ (not (any " \t\n")))))
+  (rx-let ((hspace (any " \t"))
+           (path-command
+            (seq "/" (* (seq (+ (not (any "/ \t\n"))) "/")) "nix-shell"))
+           (env-path
+            (seq "/" (* (seq (+ (not (any "/ \t\n"))) "/")) "env"))
+           (env-command
+            (seq env-path (+ hspace)
+                 (? (seq "-S" (+ hspace))) "nix-shell"))
+           (command (or "nix-shell" path-command env-command))
+           (interpreter
+            (seq (+ hspace)
+                 (or "-i" (seq (+ nonl) (+ hspace) "-i"))
+                 (+ hspace) (group (+ (not (any " \t\n")))))))
+    (rx (seq (or (seq bol "#!" (* hspace) command)
+                     (seq bol "#!" (* hspace) command (* nonl) "\n"
+                          "#!" (* hspace) command))
+             interpreter)))
   "Regexp capturing the interpreter of a nix-shell shebang line.")
 
 (defconst nix-mode--shebang-magic-regexp
-  (rx buffer-start "#!"
-      ;; Line 1: either the shebang line proper (single-line form) or
-      ;; the `env nix-shell' introducer of the two-line form, then an
-      ;; optional continuation line, one of which carries `nix-shell'
-      ;; followed later by its `-i' flag on the same line.
-      (or (seq (* (not (any ?\n))) "nix-shell" (* (not (any ?\n)))
-               (+ (any " \t")) "-i" (+ (any " \t")))
-          (seq (* (not (any ?\n))) "\n#!"
-               (* (not (any ?\n))) "nix-shell" (* (not (any ?\n)))
-               (+ (any " \t")) "-i" (+ (any " \t")))))
+  (concat "\\`" nix-mode--shebang-regexp)
   "Regexp for `magic-mode-alist' matching a nix-shell shebang.
 It is anchored at the buffer start and bounded to the first two
 lines so magic matching stays cheap.  It matches both the
@@ -591,7 +596,7 @@ gracefully."
 ;; interpreter and declines gracefully when it is unknown or absent.
 ;;;###autoload
 (add-to-list 'magic-mode-alist
-             '("\\`#!\\(?:.*nix-shell.*[\t ]+-i[\t ]+\\|.*\n#!.*nix-shell.*[\t ]+-i[\t ]+\\)"
+             '("\\`\\(?:^#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\)\\|^#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\).*\n#![\t ]*\\(?:nix-shell\\|/\\(?:[^\t\n /]+/\\)*nix-shell\\|/\\(?:[^\t\n /]+/\\)*env[\t ]+\\(?:-S[\t ]+\\)?nix-shell\\)\\)[\t ]+\\(?:-i\\|.+[\t ]+-i\\)[\t ]+\\([^\t\n ]+\\)"
                . nix-shebang-mode))
 
 (provide 'nix-mode)
