@@ -48,6 +48,7 @@
 
 (declare-function treesit-parent-until "treesit")
 (declare-function treesit-install-language-grammar "treesit")
+(declare-function sh-set-shell "sh-script")
 (declare-function nix-build "nix-commands")
 (declare-function nix-search "nix-commands")
 (declare-function nix-edit "nix-commands")
@@ -579,12 +580,16 @@ substring hits like key \"sh\" claiming \"fish\"."
   "Enter the major mode implied by a nix-shell shebang.
 Meant for `magic-mode-alist': when the buffer opens with a
 nix-shell shebang naming an interpreter that
-`interpreter-mode-alist' knows, switch to that mode.  Do nothing
+`interpreter-mode-alist' knows, switch to that mode.  Configure
+`sh-mode' variants from that interpreter rather than the outer
+nix-shell shebang.  Do nothing
 for an unknown or absent interpreter so magic matching declines
 gracefully."
   (when-let* ((interpreter (nix-mode--shebang-interpreter))
               (mode (nix-mode--interpreter-mode interpreter)))
-    (funcall mode)))
+    (funcall mode)
+    (when (derived-mode-p 'sh-mode)
+      (sh-set-shell interpreter t nil))))
 
 ;; The `magic-mode-alist' key is a plain regexp, not a function, so the
 ;; entry is pure data in the autoloads file: `find-file' can consult it

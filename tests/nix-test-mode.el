@@ -353,7 +353,10 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
       (insert content)
       (nix-shebang-mode)
       (should (eq major-mode
-                  (nix-mode--interpreter-mode "bash"))))))
+                  (nix-mode--interpreter-mode "bash")))
+      (when (eq major-mode 'sh-mode)
+        (should (eq (buffer-local-value 'sh-shell (current-buffer))
+                    'bash))))))
 
 (ert-deftest nix-mode-test-shebang-mode-declines-unknown ()
   "`nix-shebang-mode' does nothing when there is no nix-shell shebang."
