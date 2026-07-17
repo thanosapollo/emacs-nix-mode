@@ -10,6 +10,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'ert)
 (require 'nix-core)
 
@@ -94,6 +95,39 @@
     (should (equal "oops\n" (plist-get captured :stderr)))))
 
 ;;; Group 6: instantiate registry helpers
+
+(ert-deftest nix-core-test-start-waits-for-stderr-and-calls-back-once ()
+  (let ((make-pipe-process-original (symbol-function 'make-pipe-process))
+        (process-live-p-original (symbol-function 'process-live-p))
+        stderr-process
+        (hold-stderr t)
+        (count 0)
+        result)
+    (cl-letf (((symbol-function 'make-pipe-process)
+               (lambda (&rest args)
+                 (setq stderr-process
+                       (apply make-pipe-process-original args))))
+              ((symbol-function 'process-live-p)
+               (lambda (process)
+                 (or (and hold-stderr (eq process stderr-process))
+                     (funcall process-live-p-original process)))))
+      (let ((process
+             (nix--start "sh" '("-c" "printf out; printf err >&2; exit 7")
+                         (lambda (value)
+                           (setq count (1+ count)
+                                 result value)))))
+        (nix-core-test--wait
+         (lambda () (not (funcall process-live-p-original process))))
+        (should (processp process))
+        (should (= 0 count))
+        (setq hold-stderr nil)
+        (funcall (process-sentinel process) process "finished\n")
+        (nix-core-test--wait (lambda () (> count 0)))
+        (nix-core-test--wait (lambda () nil) 0.1)
+        (should (= 1 count))
+        (should (= 7 (plist-get result :exit)))
+        (should (equal "out" (plist-get result :stdout)))
+        (should (equal "err" (plist-get result :stderr)))))))
 
 (ert-deftest nix-core-test-instantiate-key-plain ()
   (should (equal (expand-file-name "/tmp/x.nix")
