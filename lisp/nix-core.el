@@ -105,16 +105,42 @@ ARGS is a list of string arguments.  The plist has the shape
 ARGS is a list of string arguments.  CALLBACK receives one
 argument, a result plist of the shape produced by `nix--call'."
   (let ((stdout (generate-new-buffer " *nix-stdout*"))
-        (stderr (generate-new-buffer " *nix-stderr*")))
-    (make-process
-     :name (format "nix-%s" (file-name-nondirectory program))
-     :command (cons program args)
-     :buffer stdout
-     :stderr stderr
-     :noquery t
-     :sentinel (lambda (proc _event)
-                 (unless (process-live-p proc)
-                   (nix--start-finish proc stdout stderr callback))))))
+        (stderr (generate-new-buffer " *nix-stderr*"))
+        (state (vector nil nil nil)))
+    (let ((stderr-process
+           (make-pipe-process
+            :name "nix-stderr"
+            :buffer stderr
+            :noquery t
+            :sentinel (lambda (_proc _event)
+                        (nix--start-maybe-finish state
+                                                 stdout stderr callback)))))
+      (aset state 1 stderr-process)
+      (aset state 0
+            (make-process
+             :name (format "nix-%s" (file-name-nondirectory program))
+             :command (cons program args)
+             :buffer stdout
+             :stderr stderr-process
+             :noquery t
+             :sentinel (lambda (_proc _event)
+                         (nix--start-maybe-finish state
+                                                  stdout stderr callback))))
+      (nix--start-maybe-finish state stdout stderr callback)
+      (aref state 0))))
+
+(defun nix--start-maybe-finish (state stdout stderr callback)
+  "Finish an asynchronous call when both processes in STATE have exited.
+STDOUT and STDERR hold their respective output.  Invoke CALLBACK
+exactly once with the collected result."
+  (let ((process (aref state 0))
+        (stderr-process (aref state 1)))
+    (when (and process stderr-process
+               (not (process-live-p process))
+               (not (process-live-p stderr-process))
+               (not (aref state 2)))
+      (aset state 2 t)
+      (nix--start-finish process stdout stderr callback))))
 
 (defun nix--start-finish (proc stdout stderr callback)
   "Collect PROC output from STDOUT and STDERR then invoke CALLBACK.
