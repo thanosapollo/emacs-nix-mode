@@ -152,6 +152,8 @@ log is available."
 
 (defun nix-edit--args (file attr)
   "Return the \"nix edit\" argument list for FILE and ATTR."
+  (when (or (null attr) (string-empty-p attr))
+    (user-error "A Nix attribute is required"))
   (list "edit" "-f" (nix--expand-file file) attr))
 
 (defun nix-edit--parse (output)

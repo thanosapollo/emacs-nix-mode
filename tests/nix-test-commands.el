@@ -57,6 +57,10 @@
   (should (equal (list "edit" "-f" (expand-file-name "pkgs.nix") "hello")
                  (nix-edit--args "pkgs.nix" "hello"))))
 
+(ert-deftest nix-commands-test-edit-args-requires-attribute ()
+  (should-error (nix-edit--args "pkgs.nix" nil) :type 'user-error)
+  (should-error (nix-edit--args "pkgs.nix" "") :type 'user-error))
+
 (ert-deftest nix-commands-test-edit-parse-plain-file ()
   (should (equal '("/nix/store/src/hello.nix" . nil)
                  (nix-edit--parse "/nix/store/src/hello.nix\n"))))
