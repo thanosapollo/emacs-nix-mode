@@ -194,6 +194,26 @@ afterwards."
       (funcall cleanup)
       (should-not (file-exists-p file)))))
 
+(ert-deftest nix-shell-test-packages-file-cleans-up-write-failure ()
+  (let* ((directory (make-temp-file "nix-shell-test" t))
+         (temporary-file-directory (file-name-as-directory directory)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'write-region)
+                   (lambda (&rest _) (error "write failed"))))
+          (should-error (nix-shell--packages-file '(hello) "<nixpkgs>"))
+          (should-not
+           (directory-files directory nil directory-files-no-dot-files-regexp)))
+      (delete-directory directory t))))
+
+(ert-deftest nix-shell-test-packages-temp-file-cleaned-on-handoff-error ()
+  (let ((file (make-temp-file "nix-shell-test" nil ".nix")))
+    (cl-letf (((symbol-function 'nix-shell--packages-file)
+               (lambda (&rest _) file))
+              ((symbol-function 'nix-instantiate-async)
+               (lambda (&rest _) (error "handoff failed"))))
+      (should-error (nix-shell-with-packages '(hello)))
+      (should-not (file-exists-p file)))))
+
 (ert-deftest nix-shell-test-eshell-packages-temp-file-cleaned ()
   (let ((file (make-temp-file "nix-shell-test" nil ".nix")))
     (cl-letf (((symbol-function 'nix-shell--packages-file)
@@ -201,6 +221,17 @@ afterwards."
               ((symbol-function 'nix-shell--eshell-buffer)
                (lambda (_parse) :buffer)))
       (should (eq :buffer (nix-eshell-with-packages '(hello))))
+      (should-not (file-exists-p file)))))
+
+(ert-deftest nix-shell-test-eshell-packages-temp-file-cleaned-on-error ()
+  (let ((file (make-temp-file "nix-shell-test" nil ".nix")))
+    (cl-letf (((symbol-function 'nix-shell--packages-file)
+               (lambda (&rest _) file))
+              ((symbol-function 'nix-shell--eshell-buffer)
+               (lambda (parse-derivation) (funcall parse-derivation)))
+              ((symbol-function 'nix-instantiate)
+               (lambda (&rest _) (error "instantiate failed"))))
+      (should-error (nix-eshell-with-packages '(hello)))
       (should-not (file-exists-p file)))))
 
 (ert-deftest nix-shell-test-eshell-mode-restores-existing-command ()

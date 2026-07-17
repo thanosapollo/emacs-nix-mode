@@ -269,28 +269,50 @@ to the buffer-local variable `exec-path' and `process-environment'."
          (nix-shell--apply buffer (nix--derivation-show drv))))
      file attr finally)))
 
+(defun nix-shell--delete-temp-file (file)
+  "Delete temporary FILE when it still exists."
+  (when (and file (file-exists-p file))
+    (delete-file file)))
+
+(defun nix-shell--cleanup-and-signal (file condition)
+  "Delete temporary FILE, then re-signal CONDITION."
+  (condition-case cleanup
+      (nix-shell--delete-temp-file file)
+    (file-error
+     (message "Deleting temporary Nix file failed: %S" cleanup)))
+  (signal (car condition) (cdr condition)))
+
 ;;;###autoload
 (defun nix-shell-with-packages (packages &optional pkgs-file)
   "Apply a shell environment built from PACKAGES to the current buffer.
 PACKAGES is a list of attribute names.  PKGS-FILE is the package
 set to pull them from, defaulting to \"<nixpkgs>\"."
   (interactive (list (split-string (read-string "Packages: "))))
-  (let ((file (nix-shell--packages-file packages pkgs-file)))
-    (nix-shell--apply-file file nil (lambda () (delete-file file)))))
+  (let (file)
+    (condition-case err
+        (progn
+          (setq file (nix-shell--packages-file packages pkgs-file))
+          (nix-shell--apply-file
+           file nil (lambda () (nix-shell--delete-temp-file file))))
+      (t (nix-shell--cleanup-and-signal file err)))))
 
 (defun nix-shell--packages-file (packages &optional pkgs-file)
   "Write a temp Nix file pulling PACKAGES from PKGS-FILE.
 PKGS-FILE defaults to \"<nixpkgs>\".  Return the file name."
-  (let ((file (make-temp-file "nix-shell" nil ".nix"))
-        (source (or pkgs-file "<nixpkgs>")))
-    (with-temp-file file
-      (insert (format "with import %s { };\n" source))
-      (insert "runCommandCC \"shell\" {\n")
-      (insert "  nativeBuildInputs = [\n")
-      (dolist (package packages)
-        (insert (format "    %s\n" package)))
-      (insert "  ];\n} \"\"\n"))
-    file))
+  (let ((source (or pkgs-file "<nixpkgs>"))
+        file)
+    (condition-case err
+        (progn
+          (setq file (make-temp-file "nix-shell" nil ".nix"))
+          (with-temp-file file
+            (insert (format "with import %s { };\n" source))
+            (insert "runCommandCC \"shell\" {\n")
+            (insert "  nativeBuildInputs = [\n")
+            (dolist (package packages)
+              (insert (format "    %s\n" package)))
+            (insert "  ];\n} \"\"\n"))
+          file)
+      (t (nix-shell--cleanup-and-signal file err)))))
 
 ;;; Eshell sessions
 
