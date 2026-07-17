@@ -346,6 +346,7 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
 (ert-deftest nix-mode-test-shebang-mode-dispatches-single-line-forms ()
   "Single-line direct and env nix-shell forms dispatch correctly."
   (dolist (content '("#!/usr/bin/nix-shell -i bash -p hello\n"
+                     "#!/usr/bin/nix-shell -i /bin/bash -p hello\n"
                      "#!/bin/env nix-shell -i bash -p hello\n"
                      "#!/usr/bin/env nix-shell -i bash -p hello\n"
                      "#!/usr/bin/env -S nix-shell -i bash -p hello\n"))

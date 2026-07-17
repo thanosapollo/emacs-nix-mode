@@ -566,14 +566,15 @@ Scan the first two lines of the current buffer for a
 
 (defun nix-mode--interpreter-mode (interpreter)
   "Return the major-mode function bound to INTERPRETER, or nil.
-Look INTERPRETER up in `interpreter-mode-alist', anchoring each
-alist key so it must match INTERPRETER exactly.  Mirrors the
-interpreter branch of `set-auto-mode-0' in files.el, avoiding
-substring hits like key \"sh\" claiming \"fish\"."
-  (assoc-default interpreter
-                 (mapcar (lambda (e) (cons (format "\\`%s\\'" (car e)) (cdr e)))
-                         interpreter-mode-alist)
-                 #'string-match-p))
+Strip directory components and match the resulting executable name
+exactly in `interpreter-mode-alist'."
+  (let ((name (file-name-nondirectory interpreter)))
+    (assoc-default
+     name
+     (mapcar (lambda (entry)
+               (cons (format "\\`%s\\'" (car entry)) (cdr entry)))
+             interpreter-mode-alist)
+     #'string-match-p)))
 
 ;;;###autoload
 (defun nix-shebang-mode ()
@@ -586,10 +587,11 @@ nix-shell shebang.  Do nothing
 for an unknown or absent interpreter so magic matching declines
 gracefully."
   (when-let* ((interpreter (nix-mode--shebang-interpreter))
-              (mode (nix-mode--interpreter-mode interpreter)))
+              (name (file-name-nondirectory interpreter))
+              (mode (nix-mode--interpreter-mode name)))
     (funcall mode)
     (when (derived-mode-p 'sh-mode)
-      (sh-set-shell interpreter t nil))))
+      (sh-set-shell name t nil))))
 
 ;; The `magic-mode-alist' key is a plain regexp, not a function, so the
 ;; entry is pure data in the autoloads file: `find-file' can consult it
