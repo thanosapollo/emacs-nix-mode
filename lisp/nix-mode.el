@@ -524,7 +524,8 @@ Enable it per buffer, typically from `nix-mode-hook':
 ;; `interpreter-mode-alist' assigns that interpreter.
 
 (defconst nix-mode--shebang-regexp
-  (rx bol "#!" (* nonl) "nix-shell" (* nonl) (+ space) "-i" (+ space)
+  (rx bol "#!" (* nonl) "nix-shell" (* nonl)
+      (+ (any " \t")) "-i" (+ (any " \t"))
       (group (+ (not (any " \t\n")))))
   "Regexp capturing the interpreter of a nix-shell shebang line.")
 
@@ -535,10 +536,10 @@ Enable it per buffer, typically from `nix-mode-hook':
       ;; optional continuation line, one of which carries `nix-shell'
       ;; followed later by its `-i' flag on the same line.
       (or (seq (* (not (any ?\n))) "nix-shell" (* (not (any ?\n)))
-               (+ space) "-i" (+ space))
+               (+ (any " \t")) "-i" (+ (any " \t")))
           (seq (* (not (any ?\n))) "\n#!"
                (* (not (any ?\n))) "nix-shell" (* (not (any ?\n)))
-               (+ space) "-i" (+ space))))
+               (+ (any " \t")) "-i" (+ (any " \t")))))
   "Regexp for `magic-mode-alist' matching a nix-shell shebang.
 It is anchored at the buffer start and bounded to the first two
 lines so magic matching stays cheap.  It matches both the
@@ -590,7 +591,7 @@ gracefully."
 ;; interpreter and declines gracefully when it is unknown or absent.
 ;;;###autoload
 (add-to-list 'magic-mode-alist
-             '("\\`#!\\(?:.*nix-shell.*[[:space:]]+-i[[:space:]]+\\|.*\n#!.*nix-shell.*[[:space:]]+-i[[:space:]]+\\)"
+             '("\\`#!\\(?:.*nix-shell.*[\t ]+-i[\t ]+\\|.*\n#!.*nix-shell.*[\t ]+-i[\t ]+\\)"
                . nix-shebang-mode))
 
 (provide 'nix-mode)

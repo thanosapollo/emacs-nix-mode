@@ -104,10 +104,13 @@ property is added."
         (while (< (point) (point-max))
           (if (get-text-property (point) 'nix-prettify)
               (let* ((beg (point))
-                     (end (next-single-property-change
-                           beg 'nix-prettify nil (point-max)))
                      (owned (get-text-property beg 'nix-prettify))
-                     (current (get-text-property beg 'composition)))
+                     (current (get-text-property beg 'composition))
+                     (owned-end (next-single-property-change
+                                 beg 'nix-prettify nil (point-max)))
+                     (current-end (next-single-property-change
+                                   beg 'composition nil (point-max)))
+                     (end (min owned-end current-end)))
                 (when (equal owned current)
                   (remove-text-properties beg end '(composition nil)))
                 (remove-text-properties beg end '(nix-prettify nil))

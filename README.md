@@ -36,6 +36,8 @@ The package is not on ELPA or MELPA yet.  Clone it and put `lisp/` on your
 
 ```elisp
 (package-vc-install
+ '(keymap-popup :url "https://codeberg.org/thanosapollo/emacs-keymap-popup"))
+(package-vc-install
  '(nix-mode :url "https://codeberg.org/thanosapollo/emacs-nix-mode"
             :lisp-dir "lisp"
             :main-file "nix-mode.el"))

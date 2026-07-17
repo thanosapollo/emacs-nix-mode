@@ -384,6 +384,14 @@ buffer whose nix-shell line only appears past the first two lines."
       (nix-shebang-mode)
       (should (eq major-mode before)))))
 
+(ert-deftest nix-mode-test-shebang-rejects-option-on-plain-second-line ()
+  "Magic dispatch does not join a plain second line to the shebang."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/nix-mode-malformed-script")
+    (insert "#!/usr/bin/env nix-shell\n-i bash\n")
+    (set-auto-mode)
+    (should (eq major-mode 'fundamental-mode))))
+
 (ert-deftest nix-mode-test-shebang-magic-alist-literal-in-sync ()
   "The inlined `magic-mode-alist' regexp equals the defconst.
 The autoloaded entry hardcodes the regexp as pure data; this
