@@ -129,6 +129,16 @@
         (should (equal "out" (plist-get result :stdout)))
         (should (equal "err" (plist-get result :stderr)))))))
 
+(ert-deftest nix-core-test-start-cleans-up-when-process-creation-fails ()
+  (let ((buffers (buffer-list))
+        (processes (process-list)))
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest _) (error "creation failed"))))
+      (should-error (nix--start "false" nil #'ignore)
+                    :type 'error))
+    (should (equal buffers (buffer-list)))
+    (should (equal processes (process-list)))))
+
 (ert-deftest nix-core-test-instantiate-key-plain ()
   (should (equal (expand-file-name "/tmp/x.nix")
                  (nix--instantiate-key "/tmp/x.nix" nil))))
@@ -158,17 +168,31 @@
     (should-not (gethash "k" nix--instantiate-registry))))
 
 (ert-deftest nix-core-test-instantiate-async-failure-clears-registry ()
-  "A failed instantiation clears the key and skips the callback."
+  "A failed instantiation clears the key, skips CALLBACK, and finalizes."
   (let ((nix--instantiate-registry (make-hash-table :test #'equal))
         (nix-instantiate-executable "false")
         (inhibit-message t)
-        (called nil))
-    (nix-instantiate-async (lambda (_drv) (setq called t)) "/tmp/x.nix")
+        (called nil)
+        (finalized nil))
+    (nix-instantiate-async (lambda (_drv) (setq called t)) "/tmp/x.nix" nil
+                           (lambda () (setq finalized t)))
     (let ((key (nix--instantiate-key "/tmp/x.nix" nil)))
       (nix-core-test--wait
        (lambda () (not (gethash key nix--instantiate-registry))))
       (should-not (gethash key nix--instantiate-registry))
-      (should-not called))))
+      (should-not called)
+      (should finalized))))
+
+(ert-deftest nix-core-test-instantiate-creation-error-finalizes ()
+  (let ((nix--instantiate-registry (make-hash-table :test #'equal))
+        finalized)
+    (cl-letf (((symbol-function 'nix--start)
+               (lambda (&rest _) (error "creation failed"))))
+      (should-error
+       (nix-instantiate-async #'ignore "/tmp/x.nix" nil
+                              (lambda () (setq finalized t)))))
+    (should (= 0 (hash-table-count nix--instantiate-registry)))
+    (should finalized)))
 
 ;;; Group 7: output unquoting
 

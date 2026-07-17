@@ -39,8 +39,8 @@
 ;; A second, independent feature (`nix-eshell-integration-mode') follows
 ;; NixOS/nix-mode PR #202: it makes "nix develop" and "nix shell ..." run
 ;; inside Eshell mutate the current session's environment instead of
-;; spawning a subshell, by capturing "... --command sh -c export" and
-;; parsing the export lines (`nix-shell--parse-exports', also pure).
+;; spawning a subshell, by capturing "... --command env -0" and parsing
+;; its NUL-delimited entries (`nix-shell--parse-environment', also pure).
 ;;
 ;; Dropped from the old module: the exotic buffer-local extras it also set
 ;; from each input (`woman-manpath', `Man-header-file-path', `ffap-c-path',
@@ -258,12 +258,16 @@ ATTR, when non-nil, selects an attribute of FILE.  FILE is
 instantiated asynchronously; the derivation's inputs are then added
 to the buffer-local variable `exec-path' and `process-environment'."
   (interactive (list (nix-shell--read-file) (nix-shell--read-attr)))
+  (nix-shell--apply-file file attr nil))
+
+(defun nix-shell--apply-file (file attr finally)
+  "Apply FILE and ATTR asynchronously, then call FINALLY."
   (let ((buffer (current-buffer)))
     (nix-instantiate-async
      (lambda (drv)
        (when (buffer-live-p buffer)
          (nix-shell--apply buffer (nix--derivation-show drv))))
-     file attr)))
+     file attr finally)))
 
 ;;;###autoload
 (defun nix-shell-with-packages (packages &optional pkgs-file)
@@ -271,7 +275,8 @@ to the buffer-local variable `exec-path' and `process-environment'."
 PACKAGES is a list of attribute names.  PKGS-FILE is the package
 set to pull them from, defaulting to \"<nixpkgs>\"."
   (interactive (list (split-string (read-string "Packages: "))))
-  (nix-shell (nix-shell--packages-file packages pkgs-file)))
+  (let ((file (nix-shell--packages-file packages pkgs-file)))
+    (nix-shell--apply-file file nil (lambda () (delete-file file)))))
 
 (defun nix-shell--packages-file (packages &optional pkgs-file)
   "Write a temp Nix file pulling PACKAGES from PKGS-FILE.
@@ -319,8 +324,10 @@ the shell prompt appears."
 PKGS-FILE is the package set, defaulting to \"<nixpkgs>\"."
   (interactive (list (split-string (read-string "Packages: "))))
   (let ((file (nix-shell--packages-file packages pkgs-file)))
-    (nix-shell--eshell-buffer
-     (lambda () (nix-instantiate file nil t)))))
+    (unwind-protect
+        (nix-shell--eshell-buffer
+         (lambda () (nix-instantiate file nil t)))
+      (delete-file file))))
 
 ;;; Phase runners
 
@@ -373,7 +380,7 @@ compilation buffer shows a copy-pastable line."
 ;; Following NixOS/nix-mode PR #202: inside Eshell, "nix develop" and
 ;; "nix shell ..." (with no trailing "--command") normally spawn a
 ;; subshell, which is useless in Eshell.  The integration reruns them as
-;; "... --command sh -c export", parses the resulting environment and
+;; "... --command env -0", parses the resulting environment and
 ;; applies it to the running Eshell session, so the developer environment
 ;; lands in the shell they are already using.  Every other nix subcommand
 ;; falls through to the real binary.
@@ -383,50 +390,31 @@ compilation buffer shows a copy-pastable line."
 ;; a "nix" command word is entered, and removes it on disable.  This keeps
 ;; the plumbing out of the way for users who do not want it.
 
-;; Variables the export dump carries that must not be forced onto the
-;; session: shell bookkeeping that is meaningless outside the capture sh.
-(defconst nix-shell--export-blocklist
+;; Variables the captured environment carries that must not be forced onto
+;; the session: shell bookkeeping meaningless outside the capture process.
+(defconst nix-shell--environment-blocklist
   '("PWD" "SHLVL" "_" "OLDPWD" "SHELL")
   "Environment variables skipped when applying captured exports.")
-
-(defun nix-shell--parse-exports (output)
-  "Parse OUTPUT of \"sh -c export\" into an alist of (VAR . VALUE).
-OUTPUT is a run of \"export VAR=\\\"VALUE\\\"\" lines; the value is
-double-quoted with backslash-escaped inner quotes and backslashes.
-Blocklisted variables (`nix-shell--export-blocklist') are dropped."
-  (seq-keep #'nix-shell--parse-export-line (split-string output "\n")))
-
-(defun nix-shell--parse-export-line (line)
-  "Parse one export LINE into a (VAR . VALUE) cons, or nil.
-Return nil for lines that are not \"export VAR=...\" or whose
-variable is blocklisted."
-  (and (string-match
-        (rx bos (* space) "export" (+ space)
-            (group (any "A-Za-z_") (* (any "A-Za-z0-9_"))) "=" (group (* nonl)))
-        line)
-       (let ((var (match-string 1 line)))
-         (unless (member var nix-shell--export-blocklist)
-           (cons var (nix-shell--unquote (match-string 2 line)))))))
-
-(defun nix-shell--unquote (value)
-  "Strip the shell double quotes and escapes from VALUE.
-An unquoted VALUE is returned unchanged; a double-quoted one has
-its quotes removed and its \\\" and \\\\ escapes resolved."
-  (if (and (> (length value) 1)
-           (string-prefix-p "\"" value)
-           (string-suffix-p "\"" value))
-      (replace-regexp-in-string
-       (rx "\\" (group (any "\"\\`$")))
-       "\\1" (substring value 1 -1))
-    value))
 
 (defun nix-shell--capture-args (args)
   "Return the argv capturing the environment of \"nix ARGS\".
 ARGS is the argument list after \"nix\".  The subcommand is rerun
-with \"--command sh -c export\" appended so its environment prints
-as export lines."
+with \"--command env -0\" appended so its environment is emitted
+without shell quoting or line-delimiter ambiguity."
   (append (list nix-executable) args
-          (list "--command" "sh" "-c" "export")))
+          (list "--command" "env" "-0")))
+
+(defun nix-shell--parse-environment (output)
+  "Parse NUL-delimited env -0 OUTPUT into an alist.
+Blocklisted variables (`nix-shell--environment-blocklist') are dropped."
+  (seq-keep
+   (lambda (entry)
+     (when (string-match (rx bos (group (+ (not "="))) "=" (group (* anything)) eos)
+                         entry)
+       (let ((var (match-string 1 entry)))
+         (unless (member var nix-shell--environment-blocklist)
+           (cons var (match-string 2 entry))))))
+   (split-string output "\0" t)))
 
 (defun nix-shell--apply-exports (exports)
   "Apply EXPORTS, an alist of (VAR . VALUE), to the current buffer.
@@ -459,7 +447,7 @@ Only \"nix develop\" and \"nix shell\" without an explicit
   "Eshell \"nix\" command with developer-environment interception.
 ARGS is the argument list after \"nix\".
 For \"nix develop\" and \"nix shell ...\" (with no \"--command\"),
-capture the environment via \"--command sh -c export\" and apply it
+capture the environment via \"--command env -0\" and apply it
 to the running Eshell session.  Every other invocation falls
 through to the real \"nix\" binary.  The capture is synchronous and
 may block while Nix evaluates.
@@ -477,8 +465,11 @@ is how Eshell resolves a \"nix\" command word to this function."
   (message "nix: loading environment ...")
   (let ((result (nix--call nix-executable (cdr (nix-shell--capture-args args)))))
     (nix-shell--apply-exports
-     (nix-shell--parse-exports (nix--check result "nix develop")))
+     (nix-shell--parse-environment (nix--check result "nix develop")))
     (message "nix: environment loaded")))
+
+(defvar nix-shell--saved-eshell-nix nil
+  "Saved binding state for `eshell/nix' while integration is enabled.")
 
 ;;;###autoload
 (define-minor-mode nix-eshell-integration-mode
@@ -493,9 +484,17 @@ command word -- and removes it on disable."
   (if nix-eshell-integration-mode
       (progn
         (require 'esh-cmd)
+        (unless nix-shell--saved-eshell-nix
+          (setq nix-shell--saved-eshell-nix
+                (cons (fboundp 'eshell/nix)
+                      (and (fboundp 'eshell/nix)
+                           (symbol-function 'eshell/nix)))))
         (defalias 'eshell/nix #'nix-shell--eshell-nix))
     (when (eq (symbol-function 'eshell/nix) #'nix-shell--eshell-nix)
-      (fmakunbound 'eshell/nix))))
+      (if (car nix-shell--saved-eshell-nix)
+          (fset 'eshell/nix (cdr nix-shell--saved-eshell-nix))
+        (fmakunbound 'eshell/nix)))
+    (setq nix-shell--saved-eshell-nix nil)))
 
 (provide 'nix-shell)
 ;;; nix-shell.el ends here

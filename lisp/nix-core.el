@@ -107,27 +107,40 @@ argument, a result plist of the shape produced by `nix--call'."
   (let ((stdout (generate-new-buffer " *nix-stdout*"))
         (stderr (generate-new-buffer " *nix-stderr*"))
         (state (vector nil nil nil)))
-    (let ((stderr-process
-           (make-pipe-process
-            :name "nix-stderr"
-            :buffer stderr
-            :noquery t
-            :sentinel (lambda (_proc _event)
-                        (nix--start-maybe-finish state
-                                                 stdout stderr callback)))))
-      (aset state 1 stderr-process)
-      (aset state 0
-            (make-process
-             :name (format "nix-%s" (file-name-nondirectory program))
-             :command (cons program args)
-             :buffer stdout
-             :stderr stderr-process
-             :noquery t
-             :sentinel (lambda (_proc _event)
-                         (nix--start-maybe-finish state
-                                                  stdout stderr callback))))
-      (nix--start-maybe-finish state stdout stderr callback)
-      (aref state 0))))
+    (condition-case err
+        (let ((stderr-process
+               (make-pipe-process
+                :name "nix-stderr"
+                :buffer stderr
+                :noquery t
+                :sentinel (lambda (_proc _event)
+                            (nix--start-maybe-finish
+                             state stdout stderr callback)))))
+          (aset state 1 stderr-process)
+          (aset state 0
+                (make-process
+                 :name (format "nix-%s" (file-name-nondirectory program))
+                 :command (cons program args)
+                 :buffer stdout
+                 :stderr stderr-process
+                 :noquery t
+                 :sentinel (lambda (_proc _event)
+                             (nix--start-maybe-finish
+                              state stdout stderr callback))))
+          (nix--start-maybe-finish state stdout stderr callback)
+          (aref state 0))
+      (error
+       (nix--start-abort state stdout stderr)
+       (signal (car err) (cdr err))))))
+
+(defun nix--start-abort (state stdout stderr)
+  "Clean up partial async STATE and output buffers STDOUT and STDERR."
+  (dolist (process (list (aref state 0) (aref state 1)))
+    (when (and process (process-live-p process))
+      (delete-process process)))
+  (dolist (buffer (list stdout stderr))
+    (when (buffer-live-p buffer)
+      (kill-buffer buffer))))
 
 (defun nix--start-maybe-finish (state stdout stderr callback)
   "Finish an asynchronous call when both processes in STATE have exited.
@@ -314,20 +327,32 @@ single process; each caller's callback is stored under the key.")
   (let ((path (nix--expand-file file)))
     (if attribute (concat path "!" attribute) path)))
 
-(defun nix--instantiate-register (key callback)
-  "Register CALLBACK under KEY.
+(defun nix--instantiate-register (key callback &optional finally)
+  "Register CALLBACK and optional FINALLY function under KEY.
 Return non-nil when a process for KEY is already running, meaning
 the caller should not start another."
   (let ((pending (gethash key nix--instantiate-registry)))
-    (puthash key (cons callback pending) nix--instantiate-registry)
+    (puthash key (cons (cons callback finally) pending)
+             nix--instantiate-registry)
     (and pending t)))
 
 (defun nix--instantiate-dispatch (key value)
   "Invoke and clear all callbacks registered under KEY with VALUE."
   (let ((callbacks (gethash key nix--instantiate-registry)))
     (remhash key nix--instantiate-registry)
-    (dolist (callback callbacks)
-      (funcall callback value))))
+    (dolist (entry callbacks)
+      (unwind-protect
+          (funcall (car entry) value)
+        (when (cdr entry)
+          (funcall (cdr entry)))))))
+
+(defun nix--instantiate-fail (key)
+  "Clear KEY and invoke its registered finalizers."
+  (let ((callbacks (gethash key nix--instantiate-registry)))
+    (remhash key nix--instantiate-registry)
+    (dolist (entry callbacks)
+      (when (cdr entry)
+        (funcall (cdr entry))))))
 
 (defun nix--instantiate-sentinel (key result)
   "Dispatch KEY callbacks with the drv path parsed from RESULT.
@@ -336,22 +361,27 @@ its callbacks and report the failure with `message', since a
 process sentinel has no caller to signal to."
   (if (eq (plist-get result :exit) 0)
       (nix--instantiate-dispatch key (string-trim (plist-get result :stdout)))
-    (remhash key nix--instantiate-registry)
+    (nix--instantiate-fail key)
     (message "nix-instantiate failed: %s"
              (string-trim (plist-get result :stderr)))))
 
-(defun nix-instantiate-async (callback file &optional attribute)
+(defun nix-instantiate-async (callback file &optional attribute finally)
   "Instantiate FILE asynchronously and pass the drv path to CALLBACK.
 ATTRIBUTE, when non-nil, selects an attribute of FILE.  Concurrent
 requests for the same FILE and ATTRIBUTE share one process.  On a
 failed instantiation the shared registry entry is cleared, CALLBACK
-is not invoked, and the error is reported with `message'."
+is not invoked, and the error is reported with `message'.  FINALLY,
+when non-nil, is called after success or failure."
   (let ((key (nix--instantiate-key file attribute)))
-    (unless (nix--instantiate-register key callback)
-      (nix--start nix-instantiate-executable
-                  (nix--instantiate-args file attribute)
-                  (lambda (result)
-                    (nix--instantiate-sentinel key result))))))
+    (unless (nix--instantiate-register key callback finally)
+      (condition-case err
+          (nix--start nix-instantiate-executable
+                      (nix--instantiate-args file attribute)
+                      (lambda (result)
+                        (nix--instantiate-sentinel key result)))
+        (error
+         (nix--instantiate-fail key)
+         (signal (car err) (cdr err)))))))
 
 ;;; Command completion
 

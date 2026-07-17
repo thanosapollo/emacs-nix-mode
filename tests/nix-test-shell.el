@@ -137,42 +137,7 @@ afterwards."
   (should (equal "/a:/b" (nix-shell--path-string '("/a" "/b") nil)))
   (should (equal "/a:/base" (nix-shell--path-string '("/a") "/base"))))
 
-;;; Group 4: export-line parser
-
-(ert-deftest nix-shell-test-parse-exports-simple ()
-  (should (equal '(("FOO" . "bar"))
-                 (nix-shell--parse-exports "export FOO=\"bar\""))))
-
-(ert-deftest nix-shell-test-parse-exports-quoted-spaces ()
-  (should (equal '(("FOO" . "bar baz"))
-                 (nix-shell--parse-exports "export FOO=\"bar baz\""))))
-
-(ert-deftest nix-shell-test-parse-exports-escaped-quote ()
-  (should (equal '(("Q" . "has \"quote\""))
-                 (nix-shell--parse-exports "export Q=\"has \\\"quote\\\"\""))))
-
-(ert-deftest nix-shell-test-parse-exports-empty-value ()
-  (should (equal '(("EMPTY" . ""))
-                 (nix-shell--parse-exports "export EMPTY=\"\""))))
-
-(ert-deftest nix-shell-test-parse-exports-skips-blocklist ()
-  (should (equal '(("KEEP" . "yes"))
-                 (nix-shell--parse-exports
-                  (concat "export PWD=\"/tmp\"\n"
-                          "export SHLVL=\"2\"\n"
-                          "export KEEP=\"yes\"\n")))))
-
-(ert-deftest nix-shell-test-parse-exports-ignores-non-export ()
-  (should (equal '(("A" . "1"))
-                 (nix-shell--parse-exports
-                  (concat "declare -x A\nexport A=\"1\"\nrandom line\n")))))
-
-(ert-deftest nix-shell-test-parse-exports-unquoted-value ()
-  "A value with no surrounding quotes is kept verbatim."
-  (should (equal '(("A" . "raw"))
-                 (nix-shell--parse-exports "export A=raw"))))
-
-;;; Group 5: interception predicate
+;;; Group 4: interception predicate
 
 (ert-deftest nix-shell-test-intercept-develop ()
   (should (nix-shell--eshell-intercept-p '("develop")))
@@ -184,10 +149,17 @@ afterwards."
   (should-not (nix-shell--eshell-intercept-p '("flake" "show"))))
 
 (ert-deftest nix-shell-test-capture-args ()
-  (should (equal (list nix-executable "develop" "--command" "sh" "-c" "export")
+  (should (equal (list nix-executable "develop" "--command" "env" "-0")
                  (nix-shell--capture-args '("develop")))))
 
-;;; Group 6: phase argument builder
+(ert-deftest nix-shell-test-parse-environment-preserves-shell-characters ()
+  (should (equal '(("A" . "line 1\nline '2' \\")
+                   ("B" . "x=y"))
+                 (nix-shell--parse-environment
+                  (concat "A=line 1\nline '2' \\" "\0"
+                          "B=x=y" "\0")))))
+
+;;; Group 5: phase argument builder
 
 (ert-deftest nix-shell-test-phase-args-with-attr ()
   (should (equal (list (expand-file-name "shell.nix") "-A" "hello"
@@ -208,6 +180,42 @@ afterwards."
 (ert-deftest nix-shell-test-dir-locals-are-safe-strings ()
   (should (eq #'stringp (get 'nix-file 'safe-local-variable)))
   (should (eq #'stringp (get 'nix-attr 'safe-local-variable))))
+
+(ert-deftest nix-shell-test-packages-temp-file-cleaned-after-async-finish ()
+  (let ((file (make-temp-file "nix-shell-test" nil ".nix"))
+        cleanup)
+    (cl-letf (((symbol-function 'nix-shell--packages-file)
+               (lambda (&rest _) file))
+              ((symbol-function 'nix-shell--apply-file)
+               (lambda (_file &optional _attr finally)
+                 (setq cleanup finally))))
+      (nix-shell-with-packages '(hello))
+      (should (file-exists-p file))
+      (funcall cleanup)
+      (should-not (file-exists-p file)))))
+
+(ert-deftest nix-shell-test-eshell-packages-temp-file-cleaned ()
+  (let ((file (make-temp-file "nix-shell-test" nil ".nix")))
+    (cl-letf (((symbol-function 'nix-shell--packages-file)
+               (lambda (&rest _) file))
+              ((symbol-function 'nix-shell--eshell-buffer)
+               (lambda (_parse) :buffer)))
+      (should (eq :buffer (nix-eshell-with-packages '(hello))))
+      (should-not (file-exists-p file)))))
+
+(ert-deftest nix-shell-test-eshell-mode-restores-existing-command ()
+  (let ((original (lambda (&rest _) :original)))
+    (unwind-protect
+        (progn
+          (fset 'eshell/nix original)
+          (nix-eshell-integration-mode 1)
+          (nix-eshell-integration-mode 1)
+          (should (eq (symbol-function 'eshell/nix)
+                      #'nix-shell--eshell-nix))
+          (nix-eshell-integration-mode -1)
+          (should (eq (symbol-function 'eshell/nix) original)))
+      (nix-eshell-integration-mode -1)
+      (fmakunbound 'eshell/nix))))
 
 (provide 'nix-test-shell)
 ;;; nix-test-shell.el ends here
