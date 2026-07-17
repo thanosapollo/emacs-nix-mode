@@ -104,31 +104,34 @@ ARGS is a list of string arguments.  The plist has the shape
   "Run PROGRAM with ARGS asynchronously and call CALLBACK on exit.
 ARGS is a list of string arguments.  CALLBACK receives one
 argument, a result plist of the shape produced by `nix--call'."
-  (let ((stdout (generate-new-buffer " *nix-stdout*"))
-        (stderr (generate-new-buffer " *nix-stderr*"))
-        (state (vector nil nil nil)))
+  (let ((state (vector nil nil nil))
+        stdout
+        stderr)
     (condition-case err
-        (let ((stderr-process
-               (make-pipe-process
-                :name "nix-stderr"
-                :buffer stderr
-                :noquery t
-                :sentinel (lambda (_proc _event)
-                            (nix--start-maybe-finish
-                             state stdout stderr callback)))))
-          (aset state 1 stderr-process)
-          (aset state 0
-                (make-process
-                 :name (format "nix-%s" (file-name-nondirectory program))
-                 :command (cons program args)
-                 :buffer stdout
-                 :stderr stderr-process
-                 :noquery t
-                 :sentinel (lambda (_proc _event)
-                             (nix--start-maybe-finish
-                              state stdout stderr callback))))
-          (nix--start-maybe-finish state stdout stderr callback)
-          (aref state 0))
+        (progn
+          (setq stdout (generate-new-buffer " *nix-stdout*")
+                stderr (generate-new-buffer " *nix-stderr*"))
+          (let ((stderr-process
+                 (make-pipe-process
+                  :name "nix-stderr"
+                  :buffer stderr
+                  :noquery t
+                  :sentinel (lambda (_proc _event)
+                              (nix--start-maybe-finish
+                               state stdout stderr callback)))))
+            (aset state 1 stderr-process)
+            (aset state 0
+                  (make-process
+                   :name (format "nix-%s" (file-name-nondirectory program))
+                   :command (cons program args)
+                   :buffer stdout
+                   :stderr stderr-process
+                   :noquery t
+                   :sentinel (lambda (_proc _event)
+                               (nix--start-maybe-finish
+                                state stdout stderr callback))))
+            (nix--start-maybe-finish state stdout stderr callback)
+            (aref state 0)))
       (t
        (nix--start-abort state stdout stderr)
        (signal (car err) (cdr err))))))
