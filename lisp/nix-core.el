@@ -129,7 +129,7 @@ argument, a result plist of the shape produced by `nix--call'."
                               state stdout stderr callback))))
           (nix--start-maybe-finish state stdout stderr callback)
           (aref state 0))
-      (error
+      (t
        (nix--start-abort state stdout stderr)
        (signal (car err) (cdr err))))))
 
@@ -354,7 +354,7 @@ the caller should not start another."
       failure
     (condition-case err
         (progn (apply function args) failure)
-      (error (or failure err)))))
+      (t (or failure err)))))
 
 (defun nix--instantiate-drain (entries callback-args)
   "Drain ENTRIES and signal their first failure after all cleanup.
@@ -377,10 +377,10 @@ process sentinel has no caller to signal to."
       (condition-case err
           (nix--instantiate-dispatch
            key (string-trim (plist-get result :stdout)))
-        (error (message "nix-instantiate callback failed: %S" err)))
+        (t (message "nix-instantiate callback failed: %S" err)))
     (condition-case err
         (nix--instantiate-fail key)
-      (error (message "nix-instantiate cleanup failed: %S" err)))
+      (t (message "nix-instantiate cleanup failed: %S" err)))
     (message "nix-instantiate failed: %s"
              (string-trim (plist-get result :stderr)))))
 
@@ -398,10 +398,10 @@ when non-nil, is called after success or failure."
                       (nix--instantiate-args file attribute)
                       (lambda (result)
                         (nix--instantiate-sentinel key result)))
-        (error
+        (t
          (condition-case cleanup
              (nix--instantiate-fail key)
-           (error (message "nix-instantiate cleanup failed: %S" cleanup)))
+           (t (message "nix-instantiate cleanup failed: %S" cleanup)))
          (signal (car err) (cdr err)))))))
 
 ;;; Command completion

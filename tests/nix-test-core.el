@@ -131,11 +131,14 @@
 
 (ert-deftest nix-core-test-start-cleans-up-when-process-creation-fails ()
   (let ((buffers (buffer-list))
-        (processes (process-list)))
+        (processes (process-list))
+        quit-signaled)
     (cl-letf (((symbol-function 'make-process)
-               (lambda (&rest _) (error "creation failed"))))
-      (should-error (nix--start "false" nil #'ignore)
-                    :type 'error))
+               (lambda (&rest _) (signal 'quit nil))))
+      (condition-case nil
+          (nix--start "sh" '("-c" "exit 0") #'ignore)
+        (quit (setq quit-signaled t))))
+    (should quit-signaled)
     (should (equal buffers (buffer-list)))
     (should (equal processes (process-list)))))
 
@@ -169,16 +172,30 @@
 
 (ert-deftest nix-core-test-instantiate-dispatch-isolates-entry-errors ()
   (let ((nix--instantiate-registry (make-hash-table :test #'equal))
-        seen)
+        seen
+        quit-signaled)
     (nix--instantiate-register
      "key"
-     (lambda (_value) (push 'older-callback seen))
-     (lambda () (push 'older-finalizer seen)))
+     (lambda (_value)
+       (should-not (gethash "key" nix--instantiate-registry))
+       (push 'older-callback seen))
+     (lambda ()
+       (should-not (gethash "key" nix--instantiate-registry))
+       (push 'older-finalizer seen)))
     (nix--instantiate-register
      "key"
-     (lambda (_value) (push 'newer-callback seen) (error "callback failed"))
-     (lambda () (push 'newer-finalizer seen) (error "finalizer failed")))
-    (should-error (nix--instantiate-dispatch "key" "drv"))
+     (lambda (_value)
+       (should-not (gethash "key" nix--instantiate-registry))
+       (push 'newer-callback seen)
+       (signal 'quit nil))
+     (lambda ()
+       (should-not (gethash "key" nix--instantiate-registry))
+       (push 'newer-finalizer seen)
+       (signal 'quit nil)))
+    (condition-case nil
+        (nix--instantiate-dispatch "key" "drv")
+      (quit (setq quit-signaled t)))
+    (should quit-signaled)
     (should (equal '(newer-callback newer-finalizer
                     older-callback older-finalizer)
                    (reverse seen)))
@@ -186,13 +203,17 @@
 
 (ert-deftest nix-core-test-instantiate-fail-isolates-finalizer-errors ()
   (let ((nix--instantiate-registry (make-hash-table :test #'equal))
-        seen)
+        seen
+        quit-signaled)
     (nix--instantiate-register
      "key" #'ignore (lambda () (push 'older-finalizer seen)))
     (nix--instantiate-register
      "key" #'ignore
-     (lambda () (push 'newer-finalizer seen) (error "finalizer failed")))
-    (should-error (nix--instantiate-fail "key"))
+     (lambda () (push 'newer-finalizer seen) (signal 'quit nil)))
+    (condition-case nil
+        (nix--instantiate-fail "key")
+      (quit (setq quit-signaled t)))
+    (should quit-signaled)
     (should (equal '(newer-finalizer older-finalizer) (reverse seen)))
     (should-not (gethash "key" nix--instantiate-registry))))
 
