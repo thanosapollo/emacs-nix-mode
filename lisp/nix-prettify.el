@@ -82,9 +82,11 @@ safe exceptions."
   "Compose the matched hash to `nix-prettify-char'.
 Called as a font-lock MATCH-HIGHLIGHT form; return nil so no face
 property is added."
-  (compose-region (match-beginning nix-prettify-regexp-group)
-                  (match-end nix-prettify-regexp-group)
-                  nix-prettify-char 'decompose-region)
+  (let ((beg (match-beginning nix-prettify-regexp-group))
+        (end (match-end nix-prettify-regexp-group)))
+    (unless (text-property-not-all beg end 'composition nil)
+      (add-text-properties beg end '(nix-prettify t))
+      (compose-region beg end nix-prettify-char 'decompose-region)))
   nil)
 
 (defun nix-prettify--keywords ()
@@ -93,10 +95,20 @@ property is added."
      (,nix-prettify-regexp-group (nix-prettify--compose)))))
 
 (defun nix-prettify--decompose-buffer ()
-  "Remove all hash compositions from the current buffer."
+  "Remove hash compositions owned by `nix-prettify-mode'."
   (with-silent-modifications
     (let ((inhibit-read-only t))
-      (remove-text-properties (point-min) (point-max) '(composition nil)))))
+      (save-excursion
+        (goto-char (point-min))
+        (while (< (point) (point-max))
+          (if (get-text-property (point) 'nix-prettify)
+              (let ((end (next-single-property-change
+                          (point) 'nix-prettify nil (point-max))))
+                (remove-text-properties
+                 (point) end '(composition nil nix-prettify nil))
+                (goto-char end))
+            (goto-char (next-single-property-change
+                        (point) 'nix-prettify nil (point-max)))))))))
 
 ;;; Minor modes
 

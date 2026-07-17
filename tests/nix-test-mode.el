@@ -343,6 +343,14 @@ The literal fragments around the interpolation stay `font-lock-string-face'."
     (should (eq major-mode
                 (nix-mode--interpreter-mode "bash")))))
 
+(ert-deftest nix-mode-test-shebang-mode-dispatches-single-line-env ()
+  "A single-line env nix-shell shebang dispatches to its interpreter mode."
+  (with-temp-buffer
+    (insert "#!/usr/bin/env nix-shell -i bash -p hello\n")
+    (nix-shebang-mode)
+    (should (eq major-mode
+                (nix-mode--interpreter-mode "bash")))))
+
 (ert-deftest nix-mode-test-shebang-mode-declines-unknown ()
   "`nix-shebang-mode' does nothing when there is no nix-shell shebang."
   (with-temp-buffer
@@ -380,6 +388,14 @@ guards against it drifting from `nix-mode--shebang-magic-regexp'."
   (let ((interpreter-mode-alist '(("bash" . sh-mode) ("sh" . sh-mode))))
     (should (eq 'sh-mode (nix-mode--interpreter-mode "bash")))
     (should-not (nix-mode--interpreter-mode "fish"))))
+
+(ert-deftest nix-mode-test-emacs-29-does-not-create-primary-parser-variable ()
+  "Starting `nix-mode' on Emacs 29 does not create a free global variable."
+  (skip-unless (= emacs-major-version 29))
+  (skip-unless (treesit-ready-p 'nix t))
+  (should-not (boundp 'treesit-primary-parser))
+  (with-temp-buffer (nix-mode))
+  (should-not (boundp 'treesit-primary-parser)))
 
 (provide 'nix-test-mode)
 ;;; nix-test-mode.el ends here

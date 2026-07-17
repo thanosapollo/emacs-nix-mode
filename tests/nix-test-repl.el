@@ -135,26 +135,49 @@ The literal \"|\" in CONTENT marks the cursor and is removed."
 
 ;;; Group 4: integration smoke test (binary-gated)
 
+(defun nix-repl-test--evaluate-smoke (buffer)
+  "Send a smoke expression to the REPL in BUFFER and verify its result."
+  (with-current-buffer buffer
+    (let ((process (get-buffer-process buffer)))
+      (nix-repl-test--wait-for process nix-repl-prompt-regexp 10)
+      (goto-char (point-max))
+      (insert "1 + 1")
+      (comint-send-input)
+      (nix-repl-test--wait-for process "^2$" 10)
+      (should (save-excursion
+                (goto-char (point-min))
+                (re-search-forward "^2$" nil t))))))
+
 (ert-deftest nix-repl-test-integration-evaluates ()
   "Starting the REPL and sending \"1 + 1\" yields \"2\" in the buffer."
   :tags '(:integration)
   (skip-unless (and (executable-find "nix")
                     (not (getenv "NIX_MODE_SKIP_INTEGRATION"))))
-  (let ((buffer (nix-repl--ensure-buffer)))
+  (let* ((real-xdg (make-temp-file "nix-repl-real-xdg-" t))
+         (test-xdg (make-temp-file "nix-repl-test-xdg-" t))
+         (real-history (expand-file-name "nix/repl-history" real-xdg))
+         (sentinel "real history must remain unchanged\n"))
     (unwind-protect
-        (with-current-buffer buffer
-          (let ((process (get-buffer-process buffer)))
-            (nix-repl-test--wait-for process nix-repl-prompt-regexp 10)
-            (goto-char (point-max))
-            (insert "1 + 1")
-            (comint-send-input)
-            (nix-repl-test--wait-for process "^2$" 10)
-            (should (save-excursion
-                      (goto-char (point-min))
-                      (re-search-forward "^2$" nil t)))))
-      (let ((process (get-buffer-process buffer)))
-        (when (process-live-p process) (delete-process process)))
-      (kill-buffer buffer))))
+        (let ((process-environment
+               (cons (concat "XDG_DATA_HOME=" real-xdg) process-environment)))
+          (make-directory (file-name-directory real-history) t)
+          (write-region sentinel nil real-history nil 'silent)
+          (let* ((process-environment
+                  (cons (concat "XDG_DATA_HOME=" test-xdg)
+                        process-environment))
+                 (nix-repl-buffer-name " *Nix-REPL-test*")
+                 (buffer (nix-repl--ensure-buffer)))
+            (unwind-protect
+                (nix-repl-test--evaluate-smoke buffer)
+              (let ((process (get-buffer-process buffer)))
+                (when (process-live-p process) (delete-process process)))
+              (kill-buffer buffer)))
+          (should (equal sentinel
+                         (with-temp-buffer
+                           (insert-file-contents real-history)
+                           (buffer-string)))))
+      (delete-directory real-xdg t)
+      (delete-directory test-xdg t))))
 
 (defun nix-repl-test--wait-for (process regexp seconds)
   "Poll PROCESS output until REGEXP appears or SECONDS elapse.

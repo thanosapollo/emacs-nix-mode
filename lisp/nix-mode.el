@@ -417,7 +417,7 @@ functions have no name."
   (unless (treesit-ready-p 'nix t)
     (user-error
      "Tree-sitter grammar for Nix missing; run M-x nix-mode-install-grammar"))
-  (setq treesit-primary-parser (treesit-parser-create 'nix))
+  (treesit-parser-create 'nix)
 
   ;; Comments.
   (setq-local comment-start "# ")
@@ -524,7 +524,7 @@ Enable it per buffer, typically from `nix-mode-hook':
 ;; `interpreter-mode-alist' assigns that interpreter.
 
 (defconst nix-mode--shebang-regexp
-  (rx bol "#!" (* space) "nix-shell" (* nonl) "-i" (+ space)
+  (rx bol "#!" (* nonl) "nix-shell" (* nonl) "-i" (+ space)
       (group (+ (not (any " \t\n")))))
   "Regexp capturing the interpreter of a nix-shell shebang line.")
 

@@ -32,10 +32,13 @@ tree-sitter only -- there is no regexp fallback engine -- so it needs the
 ## Installation
 
 The package is not on ELPA or MELPA yet.  Clone it and put `lisp/` on your
-`load-path`, or install from source with `package-vc` on Emacs 30+:
+`load-path`, or install from source with `package-vc`:
 
 ```elisp
-(package-vc-install "https://codeberg.org/thanosapollo/emacs-nix-mode")
+(package-vc-install
+ '(nix-mode :url "https://codeberg.org/thanosapollo/emacs-nix-mode"
+            :lisp-dir "lisp"
+            :main-file "nix-mode.el"))
 ```
 
 Then install the tree-sitter grammar once:
