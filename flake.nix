@@ -17,6 +17,32 @@
 
       keymapPopupVersion = "0.3.1";
 
+      sourceFiles = [
+        ".gitignore"
+        "LICENSE"
+        "Makefile"
+        "README.md"
+        "flake.lock"
+        "flake.nix"
+        "lisp/nix-commands.el"
+        "lisp/nix-core.el"
+        "lisp/nix-flake.el"
+        "lisp/nix-menu.el"
+        "lisp/nix-mode.el"
+        "lisp/nix-prettify.el"
+        "lisp/nix-repl.el"
+        "lisp/nix-shell.el"
+        "lisp/nix-store.el"
+        "tests/nix-test-commands.el"
+        "tests/nix-test-core.el"
+        "tests/nix-test-flake.el"
+        "tests/nix-test-mode.el"
+        "tests/nix-test-prettify.el"
+        "tests/nix-test-repl.el"
+        "tests/nix-test-shell.el"
+        "tests/nix-test-store.el"
+      ];
+
       # Build everything for one concrete Emacs.  Called once per
       # variant (full build, and emacs-nox) so the test matrix can
       # exercise both.
@@ -26,21 +52,13 @@
           lib = pkgs.lib;
           emacsPackages = pkgs.emacsPackagesFor emacs;
 
-          source = lib.cleanSourceWith {
-            src = ./.;
-            filter =
-              path: type:
-              let
-                name = baseNameOf path;
-              in
-              !(
-                name == ".test-results"
-                || lib.hasSuffix ".elc" name
-                || lib.hasSuffix ".so" name
-                || lib.hasSuffix ".dylib" name
-                || lib.hasSuffix "~" name
-              );
+          source = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions (map (file: ./. + "/${file}") sourceFiles);
           };
+          sourceManifest = pkgs.writeText "nix-mode-source-files" (
+            lib.concatStringsSep "\n" sourceFiles + "\n"
+          );
 
           # Pinned to a git revision until the next ELPA release: the
           # 0.3.1 tarball's switch macro generates over-wide docstrings
@@ -83,6 +101,8 @@
 
               buildPhase = ''
                 runHook preBuild
+                find . -type f -printf '%P\n' | LC_ALL=C sort > "$TMPDIR/source-files"
+                diff -u ${sourceManifest} "$TMPDIR/source-files"
                 export HOME="$TMPDIR/home"
                 export XDG_CACHE_HOME="$TMPDIR/cache"
                 export XDG_CONFIG_HOME="$TMPDIR/config"
