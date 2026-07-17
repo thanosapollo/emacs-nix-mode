@@ -340,19 +340,33 @@ the caller should not start another."
   "Invoke and clear all callbacks registered under KEY with VALUE."
   (let ((callbacks (gethash key nix--instantiate-registry)))
     (remhash key nix--instantiate-registry)
-    (dolist (entry callbacks)
-      (unwind-protect
-          (funcall (car entry) value)
-        (when (cdr entry)
-          (funcall (cdr entry)))))))
+    (nix--instantiate-drain callbacks (list value))))
 
 (defun nix--instantiate-fail (key)
   "Clear KEY and invoke its registered finalizers."
   (let ((callbacks (gethash key nix--instantiate-registry)))
     (remhash key nix--instantiate-registry)
-    (dolist (entry callbacks)
-      (when (cdr entry)
-        (funcall (cdr entry))))))
+    (nix--instantiate-drain callbacks nil)))
+
+(defun nix--instantiate-try (function args failure)
+  "Call FUNCTION with ARGS and return the first FAILURE condition."
+  (if (null function)
+      failure
+    (condition-case err
+        (progn (apply function args) failure)
+      (error (or failure err)))))
+
+(defun nix--instantiate-drain (entries callback-args)
+  "Drain ENTRIES and signal their first failure after all cleanup.
+When CALLBACK-ARGS is non-nil, invoke each callback before its finalizer."
+  (let (failure)
+    (dolist (entry entries)
+      (when callback-args
+        (setq failure
+              (nix--instantiate-try (car entry) callback-args failure)))
+      (setq failure (nix--instantiate-try (cdr entry) nil failure)))
+    (when failure
+      (signal (car failure) (cdr failure)))))
 
 (defun nix--instantiate-sentinel (key result)
   "Dispatch KEY callbacks with the drv path parsed from RESULT.
@@ -360,8 +374,13 @@ On a nonzero exit, clear KEY from the registry without invoking
 its callbacks and report the failure with `message', since a
 process sentinel has no caller to signal to."
   (if (eq (plist-get result :exit) 0)
-      (nix--instantiate-dispatch key (string-trim (plist-get result :stdout)))
-    (nix--instantiate-fail key)
+      (condition-case err
+          (nix--instantiate-dispatch
+           key (string-trim (plist-get result :stdout)))
+        (error (message "nix-instantiate callback failed: %S" err)))
+    (condition-case err
+        (nix--instantiate-fail key)
+      (error (message "nix-instantiate cleanup failed: %S" err)))
     (message "nix-instantiate failed: %s"
              (string-trim (plist-get result :stderr)))))
 
@@ -380,7 +399,9 @@ when non-nil, is called after success or failure."
                       (lambda (result)
                         (nix--instantiate-sentinel key result)))
         (error
-         (nix--instantiate-fail key)
+         (condition-case cleanup
+             (nix--instantiate-fail key)
+           (error (message "nix-instantiate cleanup failed: %S" cleanup)))
          (signal (car err) (cdr err)))))))
 
 ;;; Command completion

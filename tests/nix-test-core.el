@@ -167,6 +167,35 @@
     (should (equal '((1 . "drv") (2 . "drv")) (sort results #'car-less-than-car)))
     (should-not (gethash "k" nix--instantiate-registry))))
 
+(ert-deftest nix-core-test-instantiate-dispatch-isolates-entry-errors ()
+  (let ((nix--instantiate-registry (make-hash-table :test #'equal))
+        seen)
+    (nix--instantiate-register
+     "key"
+     (lambda (_value) (push 'older-callback seen))
+     (lambda () (push 'older-finalizer seen)))
+    (nix--instantiate-register
+     "key"
+     (lambda (_value) (push 'newer-callback seen) (error "callback failed"))
+     (lambda () (push 'newer-finalizer seen) (error "finalizer failed")))
+    (should-error (nix--instantiate-dispatch "key" "drv"))
+    (should (equal '(newer-callback newer-finalizer
+                    older-callback older-finalizer)
+                   (reverse seen)))
+    (should-not (gethash "key" nix--instantiate-registry))))
+
+(ert-deftest nix-core-test-instantiate-fail-isolates-finalizer-errors ()
+  (let ((nix--instantiate-registry (make-hash-table :test #'equal))
+        seen)
+    (nix--instantiate-register
+     "key" #'ignore (lambda () (push 'older-finalizer seen)))
+    (nix--instantiate-register
+     "key" #'ignore
+     (lambda () (push 'newer-finalizer seen) (error "finalizer failed")))
+    (should-error (nix--instantiate-fail "key"))
+    (should (equal '(newer-finalizer older-finalizer) (reverse seen)))
+    (should-not (gethash "key" nix--instantiate-registry))))
+
 (ert-deftest nix-core-test-instantiate-async-failure-clears-registry ()
   "A failed instantiation clears the key, skips CALLBACK, and finalizes."
   (let ((nix--instantiate-registry (make-hash-table :test #'equal))

@@ -75,5 +75,5 @@ make test       # tests only
 make lint       # check-declare, checkdoc, package-lint, relint
 ```
 
-`nix flake check` runs the build, lint, standard ERT, and one-shot
-reload checks in a sandbox.
+`nix flake check` runs four sandboxed ERT derivations per supported system:
+per-file and combined-twice suites under full Emacs and Emacs nox.
