@@ -77,6 +77,20 @@
         (font-lock-ensure)
         (should (equal foreign (get-text-property beg 'composition)))))))
 
+(ert-deftest nix-prettify-test-disable-preserves-replacement-composition ()
+  "Disabling preserves a foreign composition that replaced the owned one."
+  (nix-prettify-test--with-buffer nix-prettify-test--path
+    (nix-prettify-mode)
+    (font-lock-ensure)
+    (goto-char (point-min))
+    (search-forward "72f54nfp")
+    (let ((beg (- (point) 8)))
+      (compose-region beg (point) ?F)
+      (let ((foreign (get-text-property beg 'composition)))
+        (nix-prettify-mode -1)
+        (font-lock-ensure)
+        (should (equal foreign (get-text-property beg 'composition)))))))
+
 (ert-deftest nix-prettify-test-leaves-plain-text-alone ()
   "Text without a store path gets no composition."
   (nix-prettify-test--with-buffer "just some plain text here"

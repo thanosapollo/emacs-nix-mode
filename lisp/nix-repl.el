@@ -149,9 +149,9 @@ BODY runs with BUFFER current and its point at the end."
            (with-current-buffer ,buffer ,@body)
          (set-process-filter ,process ,saved)))))
 
-(defun nix-repl--clear-input-string (input)
-  "Return the backspaces that erase INPUT from the REPL line."
-  (make-string (length input) ?\b))
+(defun nix-repl--clear-input-string ()
+  "Return readline controls that erase the current REPL line."
+  "\C-a\C-k")
 
 (defun nix-repl--fetch-candidates (process prefix)
   "Return completion candidates for PREFIX from the REPL PROCESS.
@@ -162,7 +162,7 @@ listing, then clears the edited line, leaving the prompt untouched."
         (nix-repl--with-redirected-filter process buffer
 	  (process-send-string process (concat prefix "\t\t"))
 	  (nix-repl--await-output process)
-	  (process-send-string process (nix-repl--clear-input-string prefix))
+	  (process-send-string process (nix-repl--clear-input-string))
 	  (nix-repl--parse-candidates prefix (buffer-string)))
       (kill-buffer buffer))))
 

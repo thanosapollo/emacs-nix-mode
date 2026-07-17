@@ -140,6 +140,8 @@ The literal \"|\" in CONTENT marks the cursor and is removed."
   (with-current-buffer buffer
     (let ((process (get-buffer-process buffer)))
       (nix-repl-test--wait-for process nix-repl-prompt-regexp 10)
+      (should (member "builtins"
+                      (nix-repl--fetch-candidates process "buil")))
       (goto-char (point-max))
       (insert "1 + 1")
       (comint-send-input)

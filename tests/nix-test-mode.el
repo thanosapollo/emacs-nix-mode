@@ -371,8 +371,18 @@ It must not match plain Nix files, ordinary shebang scripts, or a
 buffer whose nix-shell line only appears past the first two lines."
   (dolist (content '("{ a = 1; }\n"
                      "#!/usr/bin/env bash\necho hi\n"
+                     "#!/usr/bin/env nix-shell\n#! nix-shell -p foo-i bash\n"
                      "#!/usr/bin/env bash\n# comment\n#! nix-shell -i bash\n"))
     (should-not (string-match-p nix-mode--shebang-magic-regexp content))))
+
+(ert-deftest nix-mode-test-shebang-requires-distinct-interpreter-option ()
+  "A package token ending in -i is not an interpreter option."
+  (with-temp-buffer
+    (insert "#!/usr/bin/env nix-shell\n#! nix-shell -p foo-i bash\n")
+    (should-not (nix-mode--shebang-interpreter))
+    (let ((before major-mode))
+      (nix-shebang-mode)
+      (should (eq major-mode before)))))
 
 (ert-deftest nix-mode-test-shebang-magic-alist-literal-in-sync ()
   "The inlined `magic-mode-alist' regexp equals the defconst.

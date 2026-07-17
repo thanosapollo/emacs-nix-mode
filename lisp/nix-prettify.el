@@ -85,8 +85,9 @@ property is added."
   (let ((beg (match-beginning nix-prettify-regexp-group))
         (end (match-end nix-prettify-regexp-group)))
     (unless (text-property-not-all beg end 'composition nil)
-      (add-text-properties beg end '(nix-prettify t))
-      (compose-region beg end nix-prettify-char 'decompose-region)))
+      (compose-region beg end nix-prettify-char 'decompose-region)
+      (put-text-property beg end 'nix-prettify
+                         (get-text-property beg 'composition))))
   nil)
 
 (defun nix-prettify--keywords ()
@@ -102,10 +103,14 @@ property is added."
         (goto-char (point-min))
         (while (< (point) (point-max))
           (if (get-text-property (point) 'nix-prettify)
-              (let ((end (next-single-property-change
-                          (point) 'nix-prettify nil (point-max))))
-                (remove-text-properties
-                 (point) end '(composition nil nix-prettify nil))
+              (let* ((beg (point))
+                     (end (next-single-property-change
+                           beg 'nix-prettify nil (point-max)))
+                     (owned (get-text-property beg 'nix-prettify))
+                     (current (get-text-property beg 'composition)))
+                (when (equal owned current)
+                  (remove-text-properties beg end '(composition nil)))
+                (remove-text-properties beg end '(nix-prettify nil))
                 (goto-char end))
             (goto-char (next-single-property-change
                         (point) 'nix-prettify nil (point-max)))))))))
