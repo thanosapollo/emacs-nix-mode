@@ -178,10 +178,10 @@ load: clean-elc
 	                 nix-menu-map)) \
 	    (when (boundp sym) (makunbound sym))))" > /dev/null
 	@emacsclient --eval "(load-file \"$(CURDIR)/lisp/nix-core.el\")" > /dev/null || \
-	    printf "\033[31mFAIL\033[0m lisp/nix-core.el\n"
+	    { printf "\033[31mFAIL\033[0m lisp/nix-core.el\n"; exit 1; }
 	@for f in $(LISP_FILES); do \
 	  emacsclient --eval "(load-file \"$(CURDIR)/$$f\")" > /dev/null || \
-	    printf "\033[31mFAIL\033[0m $$f\n"; \
+	    { printf "\033[31mFAIL\033[0m $$f\n"; exit 1; }; \
 	done
 	@printf "\033[32mLoaded all lisp/*.el into Emacs\033[0m\n"
 
