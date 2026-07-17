@@ -5,7 +5,7 @@
 ;; Author: Thanos Apollo <public@thanosapollo.org>
 ;; Maintainer: Thanos Apollo <public@thanosapollo.org>
 ;; Keywords: languages
-;; URL: https://codeberg.org/thanosapollo/emacs-nix-mode
+;; URL: https://git.thanosapollo.org/emacs-nix-mode/
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1") (keymap-popup "0.3"))
 
