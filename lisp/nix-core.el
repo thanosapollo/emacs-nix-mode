@@ -327,8 +327,7 @@ single process; each caller's callback is stored under the key.")
 
 (defun nix--instantiate-key (file attribute)
   "Return the registry key for FILE and ATTRIBUTE."
-  (let ((path (nix--expand-file file)))
-    (if attribute (concat path "!" attribute) path)))
+  (cons (nix--expand-file file) attribute))
 
 (defun nix--instantiate-register (key callback &optional finally)
   "Register CALLBACK and optional FINALLY function under KEY.

@@ -164,18 +164,48 @@
       (should (equal processes (process-list))))))
 
 (ert-deftest nix-core-test-instantiate-key-plain ()
-  (should (equal (expand-file-name "/tmp/x.nix")
+  (should (equal (cons (expand-file-name "/tmp/x.nix") nil)
                  (nix--instantiate-key "/tmp/x.nix" nil))))
 
 (ert-deftest nix-core-test-instantiate-key-attribute ()
-  (should (equal (concat (expand-file-name "/tmp/x.nix") "!pkg")
+  (should (equal (cons (expand-file-name "/tmp/x.nix") "pkg")
                  (nix--instantiate-key "/tmp/x.nix" "pkg"))))
+
+(ert-deftest nix-core-test-instantiate-key-is-unambiguous ()
+  (should-not (equal (nix--instantiate-key "/tmp/x!pkg" nil)
+                     (nix--instantiate-key "/tmp/x" "pkg"))))
 
 (ert-deftest nix-core-test-instantiate-args ()
   (should (equal (list (expand-file-name "/tmp/x.nix") "-A" "pkg")
                  (nix--instantiate-args "/tmp/x.nix" "pkg")))
   (should (equal (list (expand-file-name "/tmp/x.nix"))
                  (nix--instantiate-args "/tmp/x.nix" nil))))
+
+(ert-deftest nix-core-test-colliding-inputs-start-distinct-processes ()
+  "Formerly colliding inputs keep separate processes and callback results."
+  (let ((nix--instantiate-registry (make-hash-table :test #'equal))
+        starts
+        results)
+    (cl-letf (((symbol-function 'nix--start)
+               (lambda (_program args callback)
+                 (push (cons args callback) starts)
+                 (make-symbol "process"))))
+      (nix-instantiate-async
+       (lambda (value) (push (cons 'file value) results)) "/tmp/x!pkg")
+      (nix-instantiate-async
+       (lambda (value) (push (cons 'attribute value) results))
+       "/tmp/x" "pkg"))
+    (should (= 2 (length starts)))
+    (dolist (start starts)
+      (funcall (cdr start)
+               (list :exit 0
+                     :stdout (if (member "-A" (car start))
+                                 "drv-attribute\n"
+                               "drv-file\n")
+                     :stderr "")))
+    (should (member '(file . "drv-file") results))
+    (should (member '(attribute . "drv-attribute") results))
+    (should (= 0 (hash-table-count nix--instantiate-registry)))))
 
 (ert-deftest nix-core-test-instantiate-register-first-is-nil ()
   (let ((nix--instantiate-registry (make-hash-table :test #'equal)))
